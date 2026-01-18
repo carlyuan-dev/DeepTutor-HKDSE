@@ -1,35 +1,42 @@
 """
-RAGAnything Pipeline
-====================
+RAGAnything Docling Pipeline
+============================
 
-End-to-end pipeline wrapping RAG-Anything for academic document processing.
+End-to-end pipeline wrapping RAG-Anything with Docling parser for document processing.
+Uses Docling instead of MinerU for better Office document and HTML support.
 """
 
 from pathlib import Path
 import sys
 from typing import Any, Dict, List, Optional
 
-from src.logging import get_logger
-from src.logging.adapters import LightRAGLogContext
-
 # Load LLM config early to ensure OPENAI_API_KEY env var is set before LightRAG imports
 # This is critical because LightRAG reads os.environ["OPENAI_API_KEY"] directly
 from src.services.llm.config import get_llm_config as _early_config_load  # noqa: F401
 
+from src.logging import get_logger
+from src.logging.adapters import LightRAGLogContext
 
-class RAGAnythingPipeline:
+
+class RAGAnythingDoclingPipeline:
     """
-    RAG-Anything end-to-end Pipeline.
+    RAG-Anything Pipeline with Docling Parser.
 
-    Uses RAG-Anything's complete processing:
-    - MinerU PDF parsing (multimodal: images, tables, equations)
+    Uses RAG-Anything's complete processing with Docling as the document parser:
+    - Docling document parsing (supports PDF, Office documents, HTML)
     - LightRAG knowledge graph construction
     - Hybrid retrieval (hybrid/local/global/naive modes)
 
-    This is a "monolithic" pipeline - best for academic documents.
+    Advantages over MinerU:
+    - Better support for Office documents (.doc, .docx, .ppt, .pptx, .xls, .xlsx)
+    - Native HTML parsing support
+    - Easier installation (no CUDA dependencies)
+
+    Note: For academic PDFs with complex equations and formulas,
+    use RAGAnythingPipeline (MinerU) instead for better accuracy.
     """
 
-    name = "raganything"
+    name = "raganything_docling"
 
     def __init__(
         self,
@@ -39,7 +46,7 @@ class RAGAnythingPipeline:
         enable_equation_processing: bool = True,
     ):
         """
-        Initialize RAGAnything pipeline.
+        Initialize RAGAnything Docling pipeline.
 
         Args:
             kb_base_dir: Base directory for knowledge bases
@@ -47,7 +54,7 @@ class RAGAnythingPipeline:
             enable_table_processing: Enable table extraction and processing
             enable_equation_processing: Enable equation extraction and processing
         """
-        self.logger = get_logger("RAGAnythingPipeline")
+        self.logger = get_logger("RAGAnythingDoclingPipeline")
         self.kb_base_dir = kb_base_dir or str(
             Path(__file__).resolve().parent.parent.parent.parent.parent / "data" / "knowledge_bases"
         )
@@ -64,7 +71,7 @@ class RAGAnythingPipeline:
             sys.path.insert(0, str(raganything_path))
 
     def _get_rag_instance(self, kb_name: str):
-        """Get or create RAGAnything instance."""
+        """Get or create RAGAnything instance with Docling parser."""
         kb_dir = Path(self.kb_base_dir) / kb_name
         working_dir = str(kb_dir / "rag_storage")
 
@@ -87,8 +94,13 @@ class RAGAnythingPipeline:
         llm_model_func = llm_client.get_model_func()
         vision_model_func = llm_client.get_vision_model_func()
 
+        # Configure RAGAnything with Docling parser
+        # Note: content_format should be "auto" or "minerU" because DoclingParser
+        # converts its output to MinerU-compatible format internally
         config = RAGAnythingConfig(
             working_dir=working_dir,
+            parser="docling",  # Use Docling instead of MinerU
+            content_format="auto",  # Auto-detect format (Docling outputs MinerU-compatible format)
             enable_image_processing=self.enable_image,
             enable_table_processing=self.enable_table,
             enable_equation_processing=self.enable_equation,
@@ -112,10 +124,10 @@ class RAGAnythingPipeline:
         **kwargs,
     ) -> bool:
         """
-        Initialize KB using RAG-Anything with MinerU parser.
+        Initialize KB using RAG-Anything with Docling parser.
 
         Processing flow:
-        1. Parse documents using MinerU (generates content_list with nested image paths)
+        1. Parse documents using Docling (generates content_list with nested image paths)
         2. Migrate images to canonical location (kb/images/) and update paths in content_list
         3. Insert updated content_list into RAG (now with correct image paths)
         4. Clean up temporary parser output directories
@@ -123,7 +135,9 @@ class RAGAnythingPipeline:
         This ensures RAG stores the final image paths, avoiding path mismatches during retrieval.
 
         Uses FileTypeRouter to classify files and route them appropriately:
-        - PDF files -> MinerU parser (full document analysis)
+        - PDF files -> Docling parser
+        - Office files (.doc, .docx, .ppt, .pptx) -> Docling parser (direct support)
+        - HTML files -> Docling parser
         - Text files -> Direct read + LightRAG insert (fast)
 
         Args:
@@ -143,7 +157,7 @@ class RAGAnythingPipeline:
             migrate_images_and_update_paths,
         )
 
-        self.logger.info(f"Initializing KB '{kb_name}' with {len(file_paths)} files")
+        self.logger.info(f"Initializing KB '{kb_name}' with {len(file_paths)} files (Docling parser)")
 
         kb_dir = Path(self.kb_base_dir) / kb_name
         content_list_dir = kb_dir / "content_list"
@@ -155,7 +169,7 @@ class RAGAnythingPipeline:
         classification = FileTypeRouter.classify_files(file_paths)
 
         self.logger.info(
-            f"File classification: {len(classification.needs_mineru)} need MinerU, "
+            f"File classification: {len(classification.needs_mineru)} need Docling, "
             f"{len(classification.text_files)} text files, "
             f"{len(classification.unsupported)} unsupported"
         )
@@ -168,14 +182,16 @@ class RAGAnythingPipeline:
             idx = 0
             total_images_migrated = 0
 
-            # Process files requiring MinerU (PDF, DOCX, images)
+            # Process files requiring Docling (PDF, DOCX, images, HTML)
             for file_path in classification.needs_mineru:
                 idx += 1
                 file_name = Path(file_path).name
-                self.logger.info(f"Processing [{idx}/{total_files}] (MinerU): {file_name}")
+                self.logger.info(
+                    f"Processing [{idx}/{total_files}] (Docling): {file_name}"
+                )
 
                 # Step 1: Parse document (without RAG insertion)
-                self.logger.info("  Step 1/3: Parsing document...")
+                self.logger.info(f"  Step 1/3: Parsing document...")
                 content_list, doc_id = await rag.parse_document(
                     file_path=file_path,
                     output_dir=str(content_list_dir),
@@ -183,7 +199,7 @@ class RAGAnythingPipeline:
                 )
 
                 # Step 2: Migrate images and update paths
-                self.logger.info("  Step 2/3: Migrating images to canonical location...")
+                self.logger.info(f"  Step 2/3: Migrating images to canonical location...")
                 updated_content_list, num_migrated = await migrate_images_and_update_paths(
                     content_list=content_list,
                     source_base_dir=content_list_dir,
@@ -198,7 +214,7 @@ class RAGAnythingPipeline:
                     json.dump(updated_content_list, f, ensure_ascii=False, indent=2)
 
                 # Step 3: Insert into RAG with corrected paths
-                self.logger.info("  Step 3/3: Inserting into RAG knowledge graph...")
+                self.logger.info(f"  Step 3/3: Inserting into RAG knowledge graph...")
                 await rag.insert_content_list(
                     content_list=updated_content_list,
                     file_path=file_path,
@@ -215,7 +231,7 @@ class RAGAnythingPipeline:
                 )
                 content = await FileTypeRouter.read_text_file(file_path)
                 if content.strip():
-                    # Insert directly into LightRAG, bypassing MinerU
+                    # Insert directly into LightRAG, bypassing parser
                     await rag.lightrag.ainsert(content)
 
             # Log unsupported files
@@ -231,7 +247,8 @@ class RAGAnythingPipeline:
             await self._extract_numbered_items(kb_name)
 
         self.logger.info(
-            f"KB '{kb_name}' initialized successfully ({total_images_migrated} images migrated)"
+            f"KB '{kb_name}' initialized successfully with Docling parser "
+            f"({total_images_migrated} images migrated)"
         )
         return True
 
@@ -319,7 +336,7 @@ class RAGAnythingPipeline:
                 "answer": answer_str,
                 "content": answer_str,
                 "mode": mode,
-                "provider": "raganything",
+                "provider": "raganything_docling",
             }
 
     async def delete(self, kb_name: str) -> bool:
@@ -348,3 +365,4 @@ class RAGAnythingPipeline:
             return True
 
         return False
+
