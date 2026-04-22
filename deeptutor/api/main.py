@@ -203,9 +203,12 @@ from deeptutor.api.routers import (
     chat,
     co_writer,
     dashboard,
+    exam_grader,
+    flash_deck,
     knowledge,
     memory,
     notebook,
+    paper_forge,
     plugins_api,
     question,
     question_notebook,
@@ -240,6 +243,11 @@ app.include_router(plugins_api.router, prefix="/api/v1/plugins", tags=["plugins"
 app.include_router(agent_config.router, prefix="/api/v1/agent-config", tags=["agent-config"])
 app.include_router(vision_solver.router, prefix="/api/v1", tags=["vision-solver"])
 app.include_router(tutorbot.router, prefix="/api/v1/tutorbot", tags=["tutorbot"])
+
+# Market tools
+app.include_router(paper_forge.router, prefix="/api/v1/paper-forge", tags=["paper-forge"])
+app.include_router(exam_grader.router, prefix="/api/v1/exam-grader", tags=["exam-grader"])
+app.include_router(flash_deck.router, prefix="/api/v1/flash-deck", tags=["flash-deck"])
 
 # Unified WebSocket endpoint
 app.include_router(unified_ws.router, prefix="/api/v1", tags=["unified-ws"])
