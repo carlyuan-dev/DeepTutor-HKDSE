@@ -26,6 +26,7 @@ const FEATURES: Feature[] = [
       "Set number of questions, difficulty, and question type mix",
       "Generate the paper and download the marking scheme",
     ],
+    href: "/market/hkdse/english/paper-generator",
   },
   {
     id: "F2",
@@ -39,6 +40,7 @@ const FEATURES: Feature[] = [
       "AI scores each criterion and highlights errors inline",
       "Read the overall feedback and compare with the model paragraph",
     ],
+    href: "/market/hkdse/english/essay-coach",
   },
   {
     id: "F3",
@@ -99,8 +101,8 @@ export default function EnglishPage() {
               <span className="font-mono text-[11px] text-[var(--muted-foreground)]/50">
                 {feat.id}
               </span>
-              <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]/60">
-                Pending
+              <span className={`rounded-full border px-2 py-0.5 text-[10px] ${feat.href ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" : "border-[var(--border)] text-[var(--muted-foreground)]/60"}`}>
+                {feat.href ? "Ready" : "Pending"}
               </span>
             </div>
 

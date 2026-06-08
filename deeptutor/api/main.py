@@ -274,6 +274,9 @@ from deeptutor.api.routers import (
     dashboard,
     exam_grader,
     flash_deck,
+    hkdse_chinese,
+    hkdse_english,
+    hkdse_maths,
     knowledge,
     memory,
     notebook,
@@ -378,6 +381,17 @@ app.include_router(
 )
 app.include_router(
     flash_deck.router, prefix="/api/v1/flash-deck", tags=["flash-deck"], dependencies=_auth
+)
+
+# HKDSE subjects
+app.include_router(
+    hkdse_chinese.router, prefix="/api/v1/hkdse/chinese", tags=["hkdse-chinese"], dependencies=_auth
+)
+app.include_router(
+    hkdse_english.router, prefix="/api/v1/hkdse/english", tags=["hkdse-english"], dependencies=_auth
+)
+app.include_router(
+    hkdse_maths.router, prefix="/api/v1/hkdse/maths", tags=["hkdse-maths"], dependencies=_auth
 )
 
 # Unified WebSocket endpoint — auth is checked inside the handler (WebSockets
