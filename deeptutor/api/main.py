@@ -205,6 +205,9 @@ from deeptutor.api.routers import (
     dashboard,
     exam_grader,
     flash_deck,
+    hkdse_chinese,
+    hkdse_english,
+    hkdse_maths,
     knowledge,
     memory,
     notebook,
@@ -248,6 +251,9 @@ app.include_router(tutorbot.router, prefix="/api/v1/tutorbot", tags=["tutorbot"]
 app.include_router(paper_forge.router, prefix="/api/v1/paper-forge", tags=["paper-forge"])
 app.include_router(exam_grader.router, prefix="/api/v1/exam-grader", tags=["exam-grader"])
 app.include_router(flash_deck.router, prefix="/api/v1/flash-deck", tags=["flash-deck"])
+app.include_router(hkdse_chinese.router, prefix="/api/v1/hkdse/chinese", tags=["hkdse-chinese"])
+app.include_router(hkdse_english.router, prefix="/api/v1/hkdse/english", tags=["hkdse-english"])
+app.include_router(hkdse_maths.router, prefix="/api/v1/hkdse/maths", tags=["hkdse-maths"])
 
 # Unified WebSocket endpoint
 app.include_router(unified_ws.router, prefix="/api/v1", tags=["unified-ws"])

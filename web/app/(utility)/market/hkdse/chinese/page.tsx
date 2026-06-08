@@ -26,6 +26,7 @@ const FEATURES: Feature[] = [
       "設定題數、難度和題型比例",
       "點擊生成，取得完整試卷及答案",
     ],
+    href: "/market/hkdse/chinese/paper-generator",
   },
   {
     id: "F2",
@@ -39,6 +40,7 @@ const FEATURES: Feature[] = [
       "AI 按三個評分項目打分",
       "查看逐段批注和整體改進建議",
     ],
+    href: "/market/hkdse/chinese/essay-grader",
   },
   {
     id: "F3",
@@ -100,8 +102,8 @@ export default function ChinesePage() {
                 <span className="font-mono text-[11px] text-[var(--muted-foreground)]/50">
                   {feat.id}
                 </span>
-                <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]/60">
-                  Pending
+                <span className={`rounded-full border px-2 py-0.5 text-[10px] ${feat.href ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" : "border-[var(--border)] text-[var(--muted-foreground)]/60"}`}>
+                  {feat.href ? "Ready" : "Pending"}
                 </span>
               </div>
             </div>

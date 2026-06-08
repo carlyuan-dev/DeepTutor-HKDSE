@@ -1,10 +1,17 @@
 import { apiUrl } from "@/lib/api";
 import type {
+  ChineseEssayRequest,
+  ChineseEssayResult,
+  EnglishEssayRequest,
+  EnglishEssayResult,
   ExamPaper,
   Flashcard,
+  GenerateEnglishPaperRequest,
   GradeResult,
   Question,
   SMRating,
+  StepCheckRequest,
+  StepCheckResult,
   StudentAnswers,
 } from "@/types/market";
 
@@ -127,4 +134,122 @@ export function applyRating(card: Flashcard, rating: SMRating): Flashcard {
   easeFactor = Math.max(1.3, easeFactor + 0.1 - (5 - q) * (0.08 + (5 - q) * 0.02));
 
   return { ...card, interval, easeFactor, repetitions };
+}
+
+// ── HKDSE Chinese ─────────────────────────────────────────────────────────────
+
+export async function gradeChineseEssay(
+  req: ChineseEssayRequest
+): Promise<ChineseEssayResult> {
+  const res = await fetch(apiUrl("/api/v1/hkdse/chinese/essay-grade"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data as ChineseEssayResult;
+}
+
+// ── HKDSE English ─────────────────────────────────────────────────────────────
+
+export async function gradeEnglishEssay(
+  req: EnglishEssayRequest
+): Promise<EnglishEssayResult> {
+  const res = await fetch(apiUrl("/api/v1/hkdse/english/essay-grade"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data as EnglishEssayResult;
+}
+
+export async function generateEnglishPaper(
+  options: GenerateEnglishPaperRequest,
+  onProgress: (message: string) => void
+): Promise<ExamPaper> {
+  const res = await fetch(apiUrl("/api/v1/hkdse/english/generate-paper"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(options),
+  });
+  if (!res.ok || !res.body) throw new Error(`Server error ${res.status}`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const event = JSON.parse(line);
+      if (event.type === "progress") onProgress(event.message);
+      else if (event.type === "done") return event.paper as ExamPaper;
+      else if (event.type === "error") throw new Error(event.message);
+    }
+  }
+  throw new Error("Stream ended without a paper");
+}
+
+// ── HKDSE Maths ───────────────────────────────────────────────────────────────
+
+export async function checkMathSteps(
+  req: StepCheckRequest
+): Promise<StepCheckResult> {
+  const res = await fetch(apiUrl("/api/v1/hkdse/maths/step-check"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data as StepCheckResult;
+}
+
+// ── HKDSE Chinese Paper Generator ─────────────────────────────────────────────
+
+export async function generateChinesePaper(
+  options: {
+    kb_name?: string;
+    title?: string;
+    passage_type?: string;
+    question_types?: string[];
+    num_questions?: number;
+    difficulty?: string;
+  },
+  onProgress: (message: string) => void
+): Promise<ExamPaper> {
+  const res = await fetch(apiUrl("/api/v1/hkdse/chinese/generate-paper"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(options),
+  });
+  if (!res.ok || !res.body) throw new Error(`Server error ${res.status}`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const event = JSON.parse(line);
+      if (event.type === "progress") onProgress(event.message);
+      else if (event.type === "done") return event.paper as ExamPaper;
+      else if (event.type === "error") throw new Error(event.message);
+    }
+  }
+  throw new Error("Stream ended without a paper");
 }

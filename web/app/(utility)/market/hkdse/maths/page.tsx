@@ -26,6 +26,7 @@ const FEATURES: Feature[] = [
       "Set number of questions and difficulty level",
       "Generate paper and view worked solutions alongside each question",
     ],
+    href: "/market/paper-forge",
   },
   {
     id: "F2",
@@ -53,6 +54,7 @@ const FEATURES: Feature[] = [
       "Choose difficulty (Basic / Applied / Challenge) and number of questions",
       "Answer each question and view instant feedback with full solution",
     ],
+    href: "/market/hkdse/maths/topic-drill",
   },
 ];
 
@@ -99,8 +101,8 @@ export default function MathsPage() {
               <span className="font-mono text-[11px] text-[var(--muted-foreground)]/50">
                 {feat.id}
               </span>
-              <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]/60">
-                Pending
+              <span className={`rounded-full border px-2 py-0.5 text-[10px] ${feat.href ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" : "border-[var(--border)] text-[var(--muted-foreground)]/60"}`}>
+                {feat.href ? "Ready" : "Pending"}
               </span>
             </div>
 
