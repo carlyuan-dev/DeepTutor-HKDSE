@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import traceback
 from typing import Any
 
@@ -10,10 +11,9 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from deeptutor.logging import get_logger
 from deeptutor.services.llm import complete as llm_complete
 
-logger = get_logger("PaperForgeAPI")
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
