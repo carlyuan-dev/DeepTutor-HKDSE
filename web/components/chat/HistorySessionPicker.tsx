@@ -1,9 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, History as HistoryIcon, Loader2, MessageSquare, Search, X } from "lucide-react";
+import {
+  Check,
+  History as HistoryIcon,
+  Loader2,
+  MessageSquare,
+  Search,
+  X,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
+import PickerShell from "@/components/common/PickerShell";
 import { listSessions, type SessionSummary } from "@/lib/session-api";
+import { normalizeMessageContent, truncateText } from "@/lib/message-content";
 
 export interface SelectedHistorySession {
   sessionId: string;
@@ -67,7 +76,9 @@ export default function HistorySessionPicker({
     if (!keyword) return sessions;
     return sessions.filter((session) => {
       const title = String(session.title || "").toLowerCase();
-      const lastMessage = String(session.last_message || "").toLowerCase();
+      const lastMessage = normalizeMessageContent(
+        session.last_message,
+      ).toLowerCase();
       return title.includes(keyword) || lastMessage.includes(keyword);
     });
   }, [query, sessions]);
@@ -81,7 +92,9 @@ export default function HistorySessionPicker({
 
   const handleApply = () => {
     const selected = sessions
-      .filter((session) => selectedIds.includes(session.session_id || session.id))
+      .filter((session) =>
+        selectedIds.includes(session.session_id || session.id),
+      )
       .map((session) => ({
         sessionId: session.session_id || session.id,
         title: session.title || "Untitled session",
@@ -90,10 +103,14 @@ export default function HistorySessionPicker({
     onClose();
   };
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-[85] flex items-center justify-center bg-[var(--background)]/65 p-4 backdrop-blur-md">
+    <PickerShell
+      open={open}
+      onClose={onClose}
+      labelledBy="history-picker-title"
+      className="p-4 backdrop-blur-md"
+      backdropClass="bg-[var(--background)]/65"
+    >
       <div className="surface-card w-full max-w-4xl overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] text-[var(--card-foreground)] shadow-[0_22px_70px_rgba(0,0,0,0.18)]">
         <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
           <div className="min-w-0">
@@ -101,11 +118,16 @@ export default function HistorySessionPicker({
               <HistoryIcon className="h-3 w-3" />
               {t("Chat History Reference")}
             </div>
-            <h2 className="text-lg font-semibold text-[var(--foreground)]">
+            <h2
+              id="history-picker-title"
+              className="text-lg font-semibold text-[var(--foreground)]"
+            >
               {t("Select History Sessions")}
             </h2>
             <p className="mt-0.5 text-sm text-[var(--muted-foreground)]">
-              {t("Choose one or more past conversations to analyze before this turn.")}
+              {t(
+                "Choose one or more past conversations to analyze before this turn.",
+              )}
             </p>
           </div>
           <button
@@ -180,12 +202,15 @@ export default function HistorySessionPicker({
                         </div>
                         {session.last_message ? (
                           <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-[var(--muted-foreground)]">
-                            {session.last_message}
+                            {truncateText(
+                              normalizeMessageContent(session.last_message),
+                              200,
+                            )}
                           </p>
                         ) : null}
                         <div className="mt-2 flex items-center gap-3 text-[11px] text-[var(--muted-foreground)]/85">
                           <span>
-                            {(session.message_count ?? 0)} {t("messages")}
+                            {session.message_count ?? 0} {t("messages")}
                           </span>
                           {timestamp && <span>{timestamp}</span>}
                         </div>
@@ -205,18 +230,18 @@ export default function HistorySessionPicker({
             <div className="text-[12px] text-[var(--muted-foreground)]">
               {selectedIds.length === 1
                 ? t("1 session selected")
-                : t("{n} sessions selected", { n: selectedIds.length })}
+                : t("{{n}} sessions selected", { n: selectedIds.length })}
             </div>
             <button
               onClick={handleApply}
               disabled={!selectedIds.length}
               className="btn-primary rounded-xl bg-[var(--primary)] px-4 py-2.5 text-[13px] font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {t("Use Selected Sessions ({n})", { n: selectedIds.length })}
+              {t("Use Selected Sessions ({{n}})", { n: selectedIds.length })}
             </button>
           </div>
         </div>
       </div>
-    </div>
+    </PickerShell>
   );
 }

@@ -21,10 +21,9 @@ re-generation requests.
 from __future__ import annotations
 
 import asyncio
-import time
 from dataclasses import dataclass
-
-from deeptutor.logging import get_logger
+import logging
+import time
 
 from .agents.page_planner import SectionArchitect
 from .blocks.base import BlockContext, get_block_registry
@@ -40,7 +39,7 @@ from .models import (
 from .storage import BookStorage, get_book_storage
 from .streaming import STAGE_BLOCK, STAGE_COMPILATION, STAGE_PAGE_PLAN, BookStream
 
-logger = get_logger("book.compiler")
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -243,6 +242,7 @@ class BookCompiler:
                 "block_type": block.type.value,
                 "status": block.status.value,
                 "error": block.error,
+                "failure": block.metadata.get("failure") if block.metadata else None,
                 "payload_keys": list(block.payload.keys()),
             },
             stage=STAGE_BLOCK,
@@ -268,9 +268,7 @@ class BookCompiler:
             block.payload.pop("bridge_text", None)
             return
 
-        previous_summary = (
-            f"{previous_block.type.value} block on {chapter.title}"
-        )
+        previous_summary = f"{previous_block.type.value} block on {chapter.title}"
         try:
             text = await generate_bridge_text(
                 chapter_title=chapter.title,

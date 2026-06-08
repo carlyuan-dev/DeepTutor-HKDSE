@@ -138,6 +138,7 @@ def _seed_session(
     *,
     user_content: str = "what is 2+2?",
     assistant_content: str | None = "4",
+    user_metadata: dict[str, Any] | None = None,
 ) -> tuple[str, int, int | None]:
     """Create a session with a user (and optional assistant) message."""
     session = asyncio.run(store.create_session())
@@ -160,6 +161,7 @@ def _seed_session(
             content=user_content,
             capability="chat",
             attachments=[{"type": "file", "filename": "a.pdf"}],
+            metadata=user_metadata,
         )
     )
     assistant_id: int | None = None
@@ -202,6 +204,25 @@ class TestRegenerateLastTurn:
         remaining = asyncio.run(store.get_messages(sid))
         assert [m["id"] for m in remaining] == [user_id]
         assert assistant_id is not None and assistant_id not in {m["id"] for m in remaining}
+
+    def test_replays_book_references_from_request_snapshot(self, store: SQLiteSessionStore) -> None:
+        sid, _, _ = _seed_session(
+            store,
+            user_metadata={
+                "request_snapshot": {
+                    "bookReferences": [{"book_id": "book-1", "page_ids": ["page-1"]}]
+                }
+            },
+        )
+        runtime = TurnRuntimeManager(store=store)
+        recorder = _FakeStartTurnRecorder()
+
+        with patch.object(runtime, "start_turn", new=recorder):
+            asyncio.run(runtime.regenerate_last_turn(sid))
+
+        assert recorder.calls[0]["book_references"] == [
+            {"book_id": "book-1", "page_ids": ["page-1"]}
+        ]
 
     def test_user_tail_is_kept_and_no_delete(self, store: SQLiteSessionStore) -> None:
         sid, user_id, _ = _seed_session(store, assistant_content=None)
@@ -249,8 +270,8 @@ class TestRegenerateLastTurn:
 
         - The original user message is preserved (no duplicate row).
         - The previous assistant message is replaced.
-        - ``memory_service.refresh_from_turn`` is **not** invoked for the
-          regenerate turn (it would have been invoked for the original).
+        - ``memory_store.emit`` is **not** invoked for the regenerate turn
+          (it would have been invoked for the original).
         - The new SESSION event carries ``regenerate``/``regenerated_from_message_id``.
         """
         store = SQLiteSessionStore(tmp_path / "regen_e2e.db")
@@ -282,10 +303,10 @@ class TestRegenerateLastTurn:
                 )
                 yield StreamEvent(type=StreamEventType.DONE, source="chat")
 
-        refresh_calls: list[dict[str, Any]] = []
+        refresh_calls: list[Any] = []
 
-        async def tracking_refresh(**kwargs):
-            refresh_calls.append(kwargs)
+        async def tracking_emit(event):
+            refresh_calls.append(event)
 
         monkeypatch.setattr(
             "deeptutor.services.llm.config.get_llm_config", lambda: SimpleNamespace()
@@ -296,10 +317,10 @@ class TestRegenerateLastTurn:
         )
         monkeypatch.setattr("deeptutor.runtime.orchestrator.ChatOrchestrator", FakeOrchestrator)
         monkeypatch.setattr(
-            "deeptutor.services.memory.get_memory_service",
+            "deeptutor.services.memory.get_memory_store",
             lambda: SimpleNamespace(
-                build_memory_context=lambda: "",
-                refresh_from_turn=tracking_refresh,
+                read_l3_concat=lambda: "",
+                emit=tracking_emit,
             ),
         )
 
@@ -325,7 +346,7 @@ class TestRegenerateLastTurn:
         assert [m["role"] for m in before] == ["user", "assistant"]
         assert before[1]["content"] == "original answer"
         original_user_id = before[0]["id"]
-        assert len(refresh_calls) == 1
+        first_turn_refresh_count = len(refresh_calls)
 
         # Regenerate — must not duplicate user, must replace assistant, must skip memory refresh.
         _, regen_turn = await runtime.regenerate_last_turn(sid)
@@ -342,8 +363,8 @@ class TestRegenerateLastTurn:
         assert [m["role"] for m in after] == ["user", "assistant"]
         assert after[0]["id"] == original_user_id
         assert after[1]["content"] == "regenerated answer"
-        # Memory refresh must NOT have been called a second time.
-        assert len(refresh_calls) == 1
+        # Memory refresh count must not increase on regenerate.
+        assert len(refresh_calls) == first_turn_refresh_count
 
     def test_overrides_take_precedence(self, store: SQLiteSessionStore) -> None:
         sid, _, _ = _seed_session(store)

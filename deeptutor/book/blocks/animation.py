@@ -12,14 +12,13 @@ manim, …). When those packages are missing the generator raises
 from __future__ import annotations
 
 import importlib.util
+import logging
 from typing import Any
-
-from deeptutor.logging import get_logger
 
 from ..models import BlockType, SourceAnchor
 from .base import BlockContext, BlockGenerator, GenerationFailure
 
-logger = get_logger("book.blocks.animation")
+logger = logging.getLogger(__name__)
 
 
 class AnimationGenerator(BlockGenerator):
@@ -31,7 +30,8 @@ class AnimationGenerator(BlockGenerator):
         if importlib.util.find_spec("manim") is None:
             raise GenerationFailure(
                 "AnimationGenerator requires the optional math-animator extras. "
-                "Install with `pip install -r requirements/math-animator.txt`."
+                "Install with `pip install -e '.[math-animator]'` "
+                "or `pip install -r requirements/math-animator.txt`."
             )
 
         params = ctx.block.params
@@ -54,7 +54,7 @@ class AnimationGenerator(BlockGenerator):
         focus_clause = f" focusing on {focus}" if focus else ""
         user_input = (
             f"Create a short Manim animation that walks through the core "
-            f"derivation of \"{chapter_title}\"{focus_clause}. Aim for a "
+            f'derivation of "{chapter_title}"{focus_clause}. Aim for a '
             "clear, step-by-step explanation a learner can follow."
         )
 

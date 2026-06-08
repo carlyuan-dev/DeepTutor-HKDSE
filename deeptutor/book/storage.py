@@ -21,19 +21,19 @@ Layout (relative to ``data/user/workspace/book/``)::
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import json
+import logging
 import os
-import shutil
-from datetime import datetime
 from pathlib import Path
+import shutil
 from typing import Any
 
-from deeptutor.logging import get_logger
 from deeptutor.services.path_service import get_path_service
 
 from .models import Book, BookInputs, ExplorationReport, Page, Progress, Spine
 
-logger = get_logger("book.storage")
+logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -80,8 +80,11 @@ class BookStorage:
     """Async-friendly wrapper around the on-disk book layout."""
 
     def __init__(self) -> None:
-        self.path_service = get_path_service()
         self._lock = asyncio.Lock()
+
+    @property
+    def path_service(self):
+        return get_path_service()
 
     # ── Path helpers ─────────────────────────────────────────────────────
 
@@ -98,7 +101,7 @@ class BookStorage:
         ids = []
         for child in root.iterdir():
             if child.is_dir() and child.name.startswith("book_"):
-                ids.append(child.name[len("book_"):])
+                ids.append(child.name[len("book_") :])
         return ids
 
     def book_exists(self, book_id: str) -> bool:
@@ -167,9 +170,7 @@ class BookStorage:
     def save_exploration(self, book_id: str, report: ExplorationReport) -> None:
         self.ensure_book_root(book_id)
         report.book_id = report.book_id or book_id
-        _atomic_write_json(
-            self._exploration_path(book_id), report.model_dump(mode="json")
-        )
+        _atomic_write_json(self._exploration_path(book_id), report.model_dump(mode="json"))
 
     def load_exploration(self, book_id: str) -> ExplorationReport | None:
         data = _read_json(self._exploration_path(book_id))
@@ -249,7 +250,7 @@ class BookStorage:
     def append_log(self, book_id: str, message: str, *, op: str = "info") -> None:
         path = self.path_service.get_book_log_file(book_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        ts = datetime.utcnow().isoformat(timespec="seconds")
+        ts = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
         line = f"- `{ts}Z` **{op}** — {message.strip()}\n"
         with open(path, "a", encoding="utf-8") as f:
             f.write(line)
@@ -264,14 +265,14 @@ class BookStorage:
         return not root.exists()
 
 
-_storage: BookStorage | None = None
+_storages: dict[str, BookStorage] = {}
 
 
 def get_book_storage() -> BookStorage:
-    global _storage
-    if _storage is None:
-        _storage = BookStorage()
-    return _storage
+    key = str(get_path_service().workspace_root.resolve())
+    if key not in _storages:
+        _storages[key] = BookStorage()
+    return _storages[key]
 
 
 __all__ = ["BookStorage", "get_book_storage"]

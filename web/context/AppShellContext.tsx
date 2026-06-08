@@ -45,23 +45,21 @@ interface AppShellContextValue {
 
 const AppShellContext = createContext<AppShellContextValue | null>(null);
 
-export function AppShellProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export function AppShellProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     return getStoredTheme() ?? getSystemTheme();
   });
   // Always start with "en" to match SSR; hydrate from localStorage after mount
   const [language, setLanguageState] = useState<AppLanguage>("en");
-  const [activeSessionId, setActiveSessionIdState] = useState<string | null>(() =>
-    readStoredActiveSessionId(),
+  const [activeSessionId, setActiveSessionIdState] = useState<string | null>(
+    () => readStoredActiveSessionId(),
   );
   // Always start expanded to match SSR; hydrate from localStorage after mount
   const [sidebarCollapsed, setSidebarCollapsedState] = useState<boolean>(false);
 
   useEffect(() => {
+    // Hydrate client-only preferences after SSR-safe first render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLanguageState(readStoredLanguage());
     setSidebarCollapsedState(readStoredSidebarCollapsed());
   }, []);
@@ -93,7 +91,8 @@ export function AppShellProvider({
     };
 
     const onActiveSession = (event: Event) => {
-      const detail = (event as CustomEvent<{ sessionId?: string | null }>).detail;
+      const detail = (event as CustomEvent<{ sessionId?: string | null }>)
+        .detail;
       setActiveSessionIdState(detail?.sessionId ?? null);
     };
 
@@ -159,7 +158,9 @@ export function AppShellProvider({
   );
 
   return (
-    <AppShellContext.Provider value={value}>{children}</AppShellContext.Provider>
+    <AppShellContext.Provider value={value}>
+      {children}
+    </AppShellContext.Provider>
   );
 }
 

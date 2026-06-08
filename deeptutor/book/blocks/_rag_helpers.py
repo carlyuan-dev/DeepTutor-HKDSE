@@ -10,12 +10,11 @@ If the block context has a primary KB and ``rag_enabled``, run a single
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-
-from deeptutor.logging import get_logger
+import logging
 
 from ..models import SourceAnchor
 
-logger = get_logger("book.rag_helpers")
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -32,13 +31,7 @@ def _coerce_anchors(sources: list[dict] | None) -> list[SourceAnchor]:
     for src in sources[:6]:
         if not isinstance(src, dict):
             continue
-        ref = (
-            src.get("id")
-            or src.get("doc_id")
-            or src.get("path")
-            or src.get("source")
-            or ""
-        )
+        ref = src.get("id") or src.get("doc_id") or src.get("path") or src.get("source") or ""
         snippet = src.get("text") or src.get("snippet") or src.get("content") or ""
         anchors.append(
             SourceAnchor(

@@ -13,6 +13,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+import json
 import logging
 from pathlib import Path
 import shutil
@@ -61,6 +62,7 @@ def mask_channel_secrets(channels: dict[str, Any]) -> dict[str, Any]:
     through unchanged so we don't accidentally hide non-credential booleans
     (e.g. a ``token_required`` flag, hypothetical).
     """
+
     def _walk(value: Any, key_hint: str | None = None) -> Any:
         if isinstance(value, dict):
             return {k: _walk(v, key_hint=k) for k, v in value.items()}
@@ -68,12 +70,7 @@ def mask_channel_secrets(channels: dict[str, Any]) -> dict[str, Any]:
             return [_walk(v, key_hint=key_hint) for v in value]
         if isinstance(value, tuple):
             return tuple(_walk(v, key_hint=key_hint) for v in value)
-        if (
-            key_hint is not None
-            and _is_secret_field(key_hint)
-            and isinstance(value, str)
-            and value
-        ):
+        if key_hint is not None and _is_secret_field(key_hint) and isinstance(value, str) and value:
             return _SECRET_MASK
         return value
 
@@ -81,6 +78,57 @@ def mask_channel_secrets(channels: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(walked, dict):  # defensive — should not happen
         return {}
     return walked
+
+
+def normalize_message_content(content: Any) -> str:
+    """Return a display-safe string for text or multimodal message content."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            part for part in (normalize_message_content(item) for item in content) if part
+        )
+    if isinstance(content, dict):
+        for key in ("text", "content", "message", "alt"):
+            value = content.get(key)
+            if isinstance(value, str) and value:
+                return value
+        if content.get("type") in {"image", "image_url"}:
+            return "[image]"
+        try:
+            return json.dumps(content, ensure_ascii=False)
+        except TypeError:
+            return str(content)
+    return str(content)
+
+
+def _strict_config_bool(value: Any, *, default: bool = False) -> bool:
+    """Parse security-sensitive config booleans without truthy string surprises."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off", ""}:
+            return False
+        return default
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    return default
+
+
+def _history_sort_timestamp(message: dict[str, Any], fallback: float) -> float:
+    """Return a numeric timestamp for stable cross-session history ordering."""
+    raw = message.get("timestamp")
+    if isinstance(raw, str) and raw:
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            pass
+    return fallback
 
 
 @dataclass
@@ -92,6 +140,8 @@ class BotConfig:
     persona: str = ""
     channels: dict[str, Any] = field(default_factory=dict)
     model: str | None = None
+    llm_selection: dict[str, str] | None = None
+    allow_shell_exec: bool = False
 
 
 @dataclass
@@ -148,6 +198,8 @@ class TutorBotInstance:
             "persona": self.config.persona,
             "channels": channels,
             "model": self.config.model,
+            "llm_selection": self.config.llm_selection,
+            "allow_shell_exec": self.config.allow_shell_exec,
             "running": self.running,
             "started_at": self.started_at.isoformat(),
             "last_reload_error": self.last_reload_error,
@@ -159,17 +211,19 @@ class TutorBotManager:
 
     def __init__(self) -> None:
         self._bots: dict[str, TutorBotInstance] = {}
-        self._path_service = get_path_service()
+
+    @property
+    def _path_service(self):
+        return get_path_service()
 
     # ── Path helpers ──────────────────────────────────────────────
 
     @property
     def _tutorbot_dir(self) -> Path:
-        return self._path_service.project_root / "data" / "tutorbot"
+        return self._path_service.workspace_root / "tutorbot"
 
     @property
     def _shared_memory_dir(self) -> Path:
-        """Public memory shared by DeepTutor and all bots."""
         return self._path_service.get_memory_dir()
 
     def _bot_dir(self, bot_id: str) -> Path:
@@ -207,9 +261,13 @@ class TutorBotManager:
                     shutil.copytree(skill_dir, target)
                     copied += 1
                 except Exception:
-                    logger.exception("Failed to copy skill '%s' for bot '%s'", skill_dir.name, bot_id)
+                    logger.exception(
+                        "Failed to copy skill '%s' for bot '%s'", skill_dir.name, bot_id
+                    )
         if copied:
-            logger.info("Seeded %d skills for bot '%s' from %s", copied, bot_id, _BUILTIN_SKILLS_DIR)
+            logger.info(
+                "Seeded %d skills for bot '%s' from %s", copied, bot_id, _BUILTIN_SKILLS_DIR
+            )
 
     def _seed_templates(self, bot_id: str) -> None:
         """Copy per-bot template files into the bot's workspace if absent."""
@@ -266,7 +324,15 @@ class TutorBotManager:
     # ── Config persistence ────────────────────────────────────────
 
     # Field names from BotConfig that are persisted via merge.
-    _MERGEABLE_FIELDS = ("name", "description", "persona", "channels", "model")
+    _MERGEABLE_FIELDS = (
+        "name",
+        "description",
+        "persona",
+        "channels",
+        "model",
+        "llm_selection",
+        "allow_shell_exec",
+    )
 
     def load_bot_config(self, bot_id: str) -> BotConfig | None:
         """Read the on-disk ``config.yaml`` for a bot, or ``None`` if missing."""
@@ -281,6 +347,8 @@ class TutorBotManager:
                 persona=data.get("persona", ""),
                 channels=data.get("channels", {}),
                 model=data.get("model"),
+                llm_selection=data.get("llm_selection"),
+                allow_shell_exec=_strict_config_bool(data.get("allow_shell_exec", False)),
             )
         except Exception:
             logger.exception("Failed to load bot config %s", bot_id)
@@ -300,14 +368,29 @@ class TutorBotManager:
             "description": config.description,
             "persona": config.persona,
             "channels": config.channels,
+            "allow_shell_exec": config.allow_shell_exec,
             "auto_start": auto_start,
         }
         if config.model:
             data["model"] = config.model
+        if config.llm_selection:
+            data["llm_selection"] = config.llm_selection
 
         tmp_path = path.with_suffix(path.suffix + ".tmp")
         tmp_path.write_text(yaml.dump(data, allow_unicode=True), encoding="utf-8")
         tmp_path.replace(path)
+
+    def _load_auto_start(self, bot_id: str, *, default: bool = False) -> bool:
+        """Read the persisted auto-start intent without loading the full bot config."""
+        path = self._bot_dir(bot_id) / "config.yaml"
+        if not path.exists():
+            return default
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            return bool(data.get("auto_start", default))
+        except Exception:
+            logger.exception("Failed to load auto_start flag for bot '%s'", bot_id)
+            return default
 
     def merge_bot_config(self, bot_id: str, overrides: dict[str, Any]) -> BotConfig:
         """Build a ``BotConfig`` by overlaying ``overrides`` onto the on-disk config.
@@ -341,13 +424,17 @@ class TutorBotManager:
             config = BotConfig(name=bot_id)
             self.save_bot_config(bot_id, config)
 
+        from deeptutor.services.tutorbot.model_runtime import (
+            resolve_tutorbot_llm_config,
+        )
         from deeptutor.tutorbot.agent.loop import AgentLoop
         from deeptutor.tutorbot.bus.queue import MessageBus
         from deeptutor.tutorbot.config.schema import ExecToolConfig
         from deeptutor.tutorbot.providers.deeptutor_adapter import create_deeptutor_provider
         from deeptutor.tutorbot.session.manager import SessionManager
 
-        provider = create_deeptutor_provider()
+        llm_config = resolve_tutorbot_llm_config(config)
+        provider = create_deeptutor_provider(llm_config)
         bus = MessageBus()
 
         workspace = self._bot_workspace(bot_id)
@@ -358,7 +445,11 @@ class TutorBotManager:
             soul_path.write_text(config.persona, encoding="utf-8")
 
         venv_bin = str(Path(sys.executable).parent)
-        exec_config = ExecToolConfig(timeout=300, path_append=venv_bin)
+        exec_config = ExecToolConfig(
+            enabled=config.allow_shell_exec,
+            timeout=300,
+            path_append=venv_bin,
+        )
 
         canonical_key = f"bot:{bot_id}"
 
@@ -366,11 +457,12 @@ class TutorBotManager:
             bus=bus,
             provider=provider,
             workspace=workspace,
-            model=config.model,
+            model=llm_config.model,
+            context_window_tokens=llm_config.context_window or 65_536,
             exec_config=exec_config,
             session_manager=session_adapter,
-            shared_memory_dir=None,
-            restrict_to_workspace=False,
+            shared_memory_dir=self._shared_memory_dir,
+            restrict_to_workspace=True,
             default_session_key=canonical_key,
         )
 
@@ -390,7 +482,8 @@ class TutorBotManager:
 
         # -- Core tasks -------------------------------------------------------
         loop_task = asyncio.create_task(
-            agent_loop.run(), name=f"tutorbot:{bot_id}:loop",
+            agent_loop.run(),
+            name=f"tutorbot:{bot_id}:loop",
         )
         router_task = asyncio.create_task(
             self._outbound_router(bot_id, bus, instance),
@@ -402,7 +495,8 @@ class TutorBotManager:
         if channel_manager:
             for ch_name, ch in channel_manager.channels.items():
                 ch_task = asyncio.create_task(
-                    ch.start(), name=f"tutorbot:{bot_id}:ch:{ch_name}",
+                    ch.start(),
+                    name=f"tutorbot:{bot_id}:ch:{ch_name}",
                 )
                 instance.tasks.append(ch_task)
 
@@ -411,8 +505,10 @@ class TutorBotManager:
 
         async def _hb_execute(tasks_summary: str) -> str:
             return await agent_loop.process_direct(
-                tasks_summary, session_key=canonical_key,
-                channel="web", chat_id="web",
+                tasks_summary,
+                session_key=canonical_key,
+                channel="web",
+                chat_id="web",
             )
 
         async def _hb_notify(response: str) -> None:
@@ -433,6 +529,32 @@ class TutorBotManager:
         self.save_bot_config(bot_id, config)
         logger.info("TutorBot '%s' started (workspace=%s)", bot_id, workspace)
         return instance
+
+    async def reload_llm(self, bot_id: str) -> None:
+        """Apply the bot's current LLM config to an already-running instance."""
+        instance = self._bots.get(bot_id)
+        if not instance or not instance.running or not instance.agent_loop:
+            return
+
+        from deeptutor.services.tutorbot.model_runtime import (
+            resolve_tutorbot_llm_config,
+        )
+        from deeptutor.tutorbot.providers.deeptutor_adapter import create_deeptutor_provider
+
+        llm_config = resolve_tutorbot_llm_config(instance.config)
+        provider = create_deeptutor_provider(llm_config)
+        context_window_tokens = (
+            llm_config.context_window or instance.agent_loop.context_window_tokens
+        )
+        instance.agent_loop.update_llm(
+            provider=provider,
+            model=llm_config.model,
+            context_window_tokens=context_window_tokens,
+        )
+        if instance.heartbeat:
+            instance.heartbeat.provider = provider
+            instance.heartbeat.model = instance.agent_loop.model
+        logger.info("Reloaded LLM for TutorBot '%s' (model=%s)", bot_id, llm_config.model)
 
     async def _outbound_router(self, bot_id: str, bus: Any, instance: TutorBotInstance) -> None:
         """Route outbound messages to channels, web notify_queue, and EventBus.
@@ -457,7 +579,9 @@ class TutorBotManager:
                         try:
                             await channel.send(msg)
                         except Exception:
-                            logger.exception("Failed to send to channel %s for bot %s", msg.channel, bot_id)
+                            logger.exception(
+                                "Failed to send to channel %s for bot %s", msg.channel, bot_id
+                            )
                         if not is_progress and msg.chat_id:
                             instance.channel_bindings[msg.channel] = msg.chat_id
 
@@ -467,28 +591,36 @@ class TutorBotManager:
 
                 # 3. Publish to EventBus
                 if not is_progress:
-                    await event_bus.publish(Event(
-                        type=EventType.CAPABILITY_COMPLETE,
-                        task_id=f"tutorbot:{bot_id}:{msg.channel}:{msg.chat_id}",
-                        user_input="",
-                        agent_output=msg.content or "",
-                        metadata={
-                            "source": "tutorbot",
-                            "bot_id": bot_id,
-                            "channel": msg.channel,
-                            "chat_id": msg.chat_id,
-                        },
-                    ))
+                    await event_bus.publish(
+                        Event(
+                            type=EventType.CAPABILITY_COMPLETE,
+                            task_id=f"tutorbot:{bot_id}:{msg.channel}:{msg.chat_id}",
+                            user_input="",
+                            agent_output=msg.content or "",
+                            metadata={
+                                "source": "tutorbot",
+                                "bot_id": bot_id,
+                                "channel": msg.channel,
+                                "chat_id": msg.chat_id,
+                            },
+                        )
+                    )
         except asyncio.CancelledError:
             return
         except Exception:
             logger.exception("Outbound router failed for bot %s", bot_id)
 
-    async def stop_bot(self, bot_id: str) -> bool:
-        """Stop a running TutorBot instance."""
+    async def stop_bot(self, bot_id: str, *, preserve_auto_start: bool = False) -> bool:
+        """Stop a running TutorBot instance.
+
+        Manual stops should disable future auto-starts, but process shutdown
+        must preserve the persisted auto-start intent so Docker/host restarts
+        bring the same bots back online.
+        """
         instance = self._bots.get(bot_id)
         if not instance:
             return False
+        auto_start = self._load_auto_start(bot_id, default=True) if preserve_auto_start else False
 
         for task in instance.tasks:
             if not task.done():
@@ -514,9 +646,14 @@ class TutorBotManager:
             except Exception:
                 pass
 
-        self.save_bot_config(bot_id, instance.config, auto_start=False)
+        self.save_bot_config(bot_id, instance.config, auto_start=auto_start)
         del self._bots[bot_id]
-        logger.info("TutorBot '%s' stopped", bot_id)
+        logger.info(
+            "TutorBot '%s' stopped (auto_start=%s, preserve_auto_start=%s)",
+            bot_id,
+            auto_start,
+            preserve_auto_start,
+        )
         return True
 
     def _build_channel_manager(
@@ -544,7 +681,8 @@ class TutorBotManager:
             return None
         logger.info(
             "Channels enabled for bot '%s': %s",
-            bot_id, list(manager.channels.keys()),
+            bot_id,
+            list(manager.channels.keys()),
         )
         return manager
 
@@ -568,7 +706,9 @@ class TutorBotManager:
 
             try:
                 channel_manager = self._build_channel_manager(
-                    instance.config, instance.agent_loop.bus, bot_id=bot_id,
+                    instance.config,
+                    instance.agent_loop.bus,
+                    bot_id=bot_id,
                 )
             except Exception as exc:
                 logger.exception("Failed to reload channels for bot '%s'", bot_id)
@@ -581,16 +721,20 @@ class TutorBotManager:
             if channel_manager:
                 for ch_name, ch in channel_manager.channels.items():
                     ch_task = asyncio.create_task(
-                        ch.start(), name=f"tutorbot:{bot_id}:ch:{ch_name}",
+                        ch.start(),
+                        name=f"tutorbot:{bot_id}:ch:{ch_name}",
                     )
                     instance.tasks.append(ch_task)
                 logger.info(
                     "Reloaded channels for bot '%s': %s",
-                    bot_id, list(channel_manager.channels.keys()),
+                    bot_id,
+                    list(channel_manager.channels.keys()),
                 )
 
     async def _teardown_channel_listeners(
-        self, instance: TutorBotInstance, bot_id: str,
+        self,
+        instance: TutorBotInstance,
+        bot_id: str,
     ) -> None:
         """Cancel ``tutorbot:{bot_id}:ch:*`` tasks and stop the existing manager.
 
@@ -657,6 +801,7 @@ class TutorBotManager:
                 "persona": cfg.persona if cfg else "",
                 "channels": list(cfg.channels.keys()) if cfg else [],
                 "model": cfg.model if cfg else None,
+                "llm_selection": cfg.llm_selection if cfg else None,
                 "running": False,
                 "started_at": None,
             }
@@ -668,36 +813,54 @@ class TutorBotManager:
 
     def get_bot_history(self, bot_id: str, limit: int = 100) -> list[dict[str, Any]]:
         """Read chat messages from a bot's JSONL session files."""
-        import json as _json
-
         sessions_dir = self._bot_workspace(bot_id) / "sessions"
         if not sessions_dir.exists():
             return []
 
-        all_messages: list[dict[str, Any]] = []
-        for path in sorted(sessions_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
+        indexed_messages: list[tuple[float, int, dict[str, Any]]] = []
+        sequence = 0
+        for path in sorted(sessions_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime):
+            file_mtime = path.stat().st_mtime
             try:
                 with open(path, encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if not line:
                             continue
-                        data = _json.loads(line)
+                        data = json.loads(line)
                         if data.get("_type") == "metadata":
                             continue
                         if data.get("role") in ("user", "assistant") and data.get("content"):
-                            all_messages.append(data)
+                            data["content"] = normalize_message_content(data["content"])
+                            data.pop("reasoning_content", None)
+                            indexed_messages.append(
+                                (
+                                    _history_sort_timestamp(data, file_mtime),
+                                    sequence,
+                                    data,
+                                )
+                            )
+                            sequence += 1
             except Exception:
                 continue
-            if len(all_messages) >= limit:
-                break
 
-        return all_messages[-limit:]
+        indexed_messages.sort(key=lambda item: (item[0], item[1]))
+        messages = [item[2] for item in indexed_messages]
+        return messages[-limit:]
+
+    @staticmethod
+    def web_session_key(bot_id: str, *, chat_id: str = "web", session_id: str | None = None) -> str:
+        """Return the TutorBot session key used for web/API conversations."""
+        normalized_session = str(session_id or "").strip()
+        if normalized_session:
+            return f"web:{normalized_session}"
+        normalized_chat = str(chat_id or "web").strip() or "web"
+        if normalized_chat != "web":
+            return f"web:{normalized_chat}"
+        return f"bot:{bot_id}"
 
     def get_recent_active_bots(self, limit: int = 3) -> list[dict[str, Any]]:
         """Return the most recently active bots with their last message preview."""
-        import json as _json
-
         bot_activity: list[tuple[float, str, dict[str, Any]]] = []
 
         for bid in self._discover_bot_ids():
@@ -719,23 +882,29 @@ class TutorBotManager:
                         line = line.strip()
                         if not line:
                             continue
-                        data = _json.loads(line)
+                        data = json.loads(line)
                         if data.get("_type") == "metadata":
                             continue
                         if data.get("role") in ("user", "assistant") and data.get("content"):
-                            last_msg = data["content"]
+                            last_msg = normalize_message_content(data["content"])
             except Exception:
                 pass
 
             cfg = self.load_bot_config(bid)
             instance = self._bots.get(bid)
-            bot_activity.append((mtime, bid, {
-                "bot_id": bid,
-                "name": cfg.name if cfg else bid,
-                "running": instance.running if instance else False,
-                "last_message": last_msg[:200] if last_msg else "",
-                "updated_at": datetime.fromtimestamp(mtime).isoformat(),
-            }))
+            bot_activity.append(
+                (
+                    mtime,
+                    bid,
+                    {
+                        "bot_id": bid,
+                        "name": cfg.name if cfg else bid,
+                        "running": instance.running if instance else False,
+                        "last_message": last_msg[:200] if last_msg else "",
+                        "updated_at": datetime.fromtimestamp(mtime).isoformat(),
+                    },
+                )
+            )
 
         bot_activity.sort(key=lambda x: x[0], reverse=True)
         return [item[2] for item in bot_activity[:limit]]
@@ -745,6 +914,7 @@ class TutorBotManager:
         bot_id: str,
         content: str,
         chat_id: str = "web",
+        session_id: str | None = None,
         on_progress: Callable[[str], Awaitable[None]] | None = None,
     ) -> str:
         """Send a message to a running bot and return the response."""
@@ -752,7 +922,7 @@ class TutorBotManager:
         if not instance or not instance.running:
             raise RuntimeError(f"Bot '{bot_id}' is not running")
 
-        canonical_key = f"bot:{bot_id}"
+        session_key = self.web_session_key(bot_id, chat_id=chat_id, session_id=session_id)
 
         async def _progress(text: str, *, tool_hint: bool = False) -> None:
             if on_progress:
@@ -760,9 +930,9 @@ class TutorBotManager:
 
         response = await instance.agent_loop.process_direct(
             content,
-            session_key=canonical_key,
+            session_key=session_key,
             channel="web",
-            chat_id=chat_id,
+            chat_id=session_id or chat_id,
             on_progress=_progress,
         )
 
@@ -775,13 +945,18 @@ class TutorBotManager:
                 ch = instance.channel_manager.get_channel(ch_name)
                 if ch:
                     try:
-                        await ch.send(OutboundMessage(
-                            channel=ch_name, chat_id=ch_chat_id, content=response,
-                        ))
+                        await ch.send(
+                            OutboundMessage(
+                                channel=ch_name,
+                                chat_id=ch_chat_id,
+                                content=response,
+                            )
+                        )
                     except Exception:
                         logger.exception(
                             "Failed to forward web reply to channel %s for bot %s",
-                            ch_name, bot_id,
+                            ch_name,
+                            bot_id,
                         )
 
         return response
@@ -805,6 +980,7 @@ class TutorBotManager:
                     persona=data.get("persona", ""),
                     channels=data.get("channels", {}),
                     model=data.get("model"),
+                    llm_selection=data.get("llm_selection"),
                 )
                 await self.start_bot(bid, config)
                 logger.info("Auto-started bot '%s'", bid)
@@ -813,7 +989,7 @@ class TutorBotManager:
 
     async def destroy_bot(self, bot_id: str) -> bool:
         """Stop a bot (if running) and permanently delete its data from disk."""
-        await self.stop_bot(bot_id)
+        await self.stop_bot(bot_id, preserve_auto_start=False)
         bot_dir = self._bot_dir(bot_id)
         if not bot_dir.exists():
             return False
@@ -849,10 +1025,10 @@ class TutorBotManager:
             result[fn] = path.read_text(encoding="utf-8") if path.exists() else ""
         return result
 
-    async def stop_all(self) -> None:
-        """Stop all running bots."""
+    async def stop_all(self, *, preserve_auto_start: bool = True) -> None:
+        """Stop all running bots while preserving restart intent by default."""
         for bot_id in list(self._bots.keys()):
-            await self.stop_bot(bot_id)
+            await self.stop_bot(bot_id, preserve_auto_start=preserve_auto_start)
 
     # ── Soul template library ─────────────────────────────────────
 
@@ -879,40 +1055,60 @@ class TutorBotManager:
 
     def _seed_default_souls(self) -> None:
         defaults = [
-            {"id": "default-tutorbot", "name": "Default TutorBot", "content": (
-                "# Soul\n\nI am TutorBot, a personal learning companion.\n\n"
-                "## Personality\n\n- Helpful and friendly\n- Clear, encouraging, and patient\n"
-                "- Adapts explanations to the user's level\n\n"
-                "## Values\n\n- Accuracy over speed\n- User privacy and safety\n- Transparency in actions"
-            )},
-            {"id": "math-tutor", "name": "Math Tutor", "content": (
-                "# Soul\n\nI am a math tutor specializing in clear, step-by-step problem solving.\n\n"
-                "## Personality\n\n- Patient and methodical\n- Encourages showing work\n"
-                "- Celebrates progress on hard problems\n\n"
-                "## Teaching Style\n\n- Break complex problems into small steps\n"
-                "- Use visual representations when possible\n- Always verify final answers"
-            )},
-            {"id": "coding-assistant", "name": "Coding Assistant", "content": (
-                "# Soul\n\nI am a coding assistant focused on helping developers write better software.\n\n"
-                "## Personality\n\n- Precise and detail-oriented\n"
-                "- Pragmatic — working code over perfect code\n- Explains trade-offs clearly\n\n"
-                "## Approach\n\n- Read before writing; understand context first\n"
-                "- Suggest tests alongside implementations\n- Prefer standard patterns over clever tricks"
-            )},
-            {"id": "research-helper", "name": "Research Helper", "content": (
-                "# Soul\n\nI am a research assistant helping users explore academic topics in depth.\n\n"
-                "## Personality\n\n- Curious and thorough\n"
-                "- Balanced — presents multiple perspectives\n- Cites sources when possible\n\n"
-                "## Approach\n\n- Decompose broad questions into focused sub-questions\n"
-                "- Distinguish established facts from open questions\n- Suggest further reading"
-            )},
-            {"id": "language-tutor", "name": "Language Tutor", "content": (
-                "# Soul\n\nI am a language learning companion helping users practice and improve.\n\n"
-                "## Personality\n\n- Encouraging and patient\n"
-                "- Adapts difficulty to learner level\n- Makes learning fun with examples\n\n"
-                "## Teaching Style\n\n- Correct mistakes gently with explanations\n"
-                "- Use contextual examples over abstract rules\n- Encourage speaking/writing practice"
-            )},
+            {
+                "id": "default-tutorbot",
+                "name": "Default TutorBot",
+                "content": (
+                    "# Soul\n\nI am TutorBot, a personal learning companion.\n\n"
+                    "## Personality\n\n- Helpful and friendly\n- Clear, encouraging, and patient\n"
+                    "- Adapts explanations to the user's level\n\n"
+                    "## Values\n\n- Accuracy over speed\n- User privacy and safety\n- Transparency in actions"
+                ),
+            },
+            {
+                "id": "math-tutor",
+                "name": "Math Tutor",
+                "content": (
+                    "# Soul\n\nI am a math tutor specializing in clear, step-by-step problem solving.\n\n"
+                    "## Personality\n\n- Patient and methodical\n- Encourages showing work\n"
+                    "- Celebrates progress on hard problems\n\n"
+                    "## Teaching Style\n\n- Break complex problems into small steps\n"
+                    "- Use visual representations when possible\n- Always verify final answers"
+                ),
+            },
+            {
+                "id": "coding-assistant",
+                "name": "Coding Assistant",
+                "content": (
+                    "# Soul\n\nI am a coding assistant focused on helping developers write better software.\n\n"
+                    "## Personality\n\n- Precise and detail-oriented\n"
+                    "- Pragmatic — working code over perfect code\n- Explains trade-offs clearly\n\n"
+                    "## Approach\n\n- Read before writing; understand context first\n"
+                    "- Suggest tests alongside implementations\n- Prefer standard patterns over clever tricks"
+                ),
+            },
+            {
+                "id": "research-helper",
+                "name": "Research Helper",
+                "content": (
+                    "# Soul\n\nI am a research assistant helping users explore academic topics in depth.\n\n"
+                    "## Personality\n\n- Curious and thorough\n"
+                    "- Balanced — presents multiple perspectives\n- Cites sources when possible\n\n"
+                    "## Approach\n\n- Decompose broad questions into focused sub-questions\n"
+                    "- Distinguish established facts from open questions\n- Suggest further reading"
+                ),
+            },
+            {
+                "id": "language-tutor",
+                "name": "Language Tutor",
+                "content": (
+                    "# Soul\n\nI am a language learning companion helping users practice and improve.\n\n"
+                    "## Personality\n\n- Encouraging and patient\n"
+                    "- Adapts difficulty to learner level\n- Makes learning fun with examples\n\n"
+                    "## Teaching Style\n\n- Correct mistakes gently with explanations\n"
+                    "- Use contextual examples over abstract rules\n- Encourage speaking/writing practice"
+                ),
+            },
         ]
         self._save_souls(defaults)
 
@@ -932,7 +1128,9 @@ class TutorBotManager:
         self._save_souls(souls)
         return entry
 
-    def update_soul(self, soul_id: str, name: str | None, content: str | None) -> dict[str, str] | None:
+    def update_soul(
+        self, soul_id: str, name: str | None, content: str | None
+    ) -> dict[str, str] | None:
         souls = self._load_souls()
         for s in souls:
             if s.get("id") == soul_id:
@@ -953,11 +1151,11 @@ class TutorBotManager:
         return True
 
 
-_manager: TutorBotManager | None = None
+_managers: dict[str, TutorBotManager] = {}
 
 
 def get_tutorbot_manager() -> TutorBotManager:
-    global _manager
-    if _manager is None:
-        _manager = TutorBotManager()
-    return _manager
+    key = str(get_path_service().workspace_root.resolve())
+    if key not in _managers:
+        _managers[key] = TutorBotManager()
+    return _managers[key]

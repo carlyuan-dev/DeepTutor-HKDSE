@@ -8,48 +8,11 @@ from pathlib import Path
 import shutil
 from typing import Any, Dict, List, Optional
 
-from deeptutor.logging import get_logger
+from deeptutor.runtime.home import get_runtime_data_root
 
 from .factory import DEFAULT_PROVIDER, get_pipeline, list_pipelines
 
-
-class _RAGRawLogHandler(logging.Handler):
-    def __init__(self, event_sink, loop) -> None:
-        super().__init__(level=logging.DEBUG)
-        self._event_sink = event_sink
-        self._loop = loop
-
-    def emit(self, record: logging.LogRecord) -> None:
-        if self._event_sink is None:
-            return
-        try:
-            module_name = getattr(record, "module_name", record.name.split(".")[-1])
-            level_name = getattr(record, "display_level", record.levelname)
-            message = record.getMessage()
-            line = f"[{module_name}] {level_name}: {message}".strip()
-            if not line:
-                return
-
-            async def _emit() -> None:
-                await self._event_sink(
-                    "raw_log",
-                    line,
-                    {
-                        "trace_layer": "raw",
-                        "logger_name": record.name,
-                        "log_level": level_name,
-                        "module_name": module_name,
-                    },
-                )
-
-            self._loop.create_task(_emit())
-        except Exception:
-            pass
-
-
-DEFAULT_KB_BASE_DIR = str(
-    Path(__file__).resolve().parent.parent.parent.parent / "data" / "knowledge_bases"
-)
+DEFAULT_KB_BASE_DIR = str(get_runtime_data_root() / "knowledge_bases")
 
 
 class RAGService:
@@ -60,8 +23,21 @@ class RAGService:
         kb_base_dir: Optional[str] = None,
         provider: Optional[str] = None,  # accepted for backward compatibility
     ):
-        self.logger = get_logger("RAGService")
-        self.kb_base_dir = kb_base_dir or DEFAULT_KB_BASE_DIR
+        self.logger = logging.getLogger(__name__)
+        if kb_base_dir is None:
+            try:
+                from deeptutor.services.path_service import get_path_service
+
+                kb_base_dir = str(get_path_service().get_knowledge_bases_root())
+            except Exception:
+                self.logger.warning(
+                    "RAGService falling back to DEFAULT_KB_BASE_DIR (%s); "
+                    "this should only happen in single-user / CLI mode. "
+                    "Multi-user requests must reach this path with an explicit kb_base_dir.",
+                    DEFAULT_KB_BASE_DIR,
+                )
+                kb_base_dir = DEFAULT_KB_BASE_DIR
+        self.kb_base_dir = kb_base_dir
         self.provider = DEFAULT_PROVIDER
         self._pipeline = None
 
@@ -70,14 +46,17 @@ class RAGService:
             self._pipeline = get_pipeline(kb_base_dir=self.kb_base_dir)
         return self._pipeline
 
-    async def initialize(
-        self, kb_name: str, file_paths: List[str], **kwargs
-    ) -> bool:
+    async def initialize(self, kb_name: str, file_paths: List[str], **kwargs) -> bool:
         self.logger.info(f"Initializing KB '{kb_name}'")
         pipeline = self._get_pipeline()
-        return await pipeline.initialize(
-            kb_name=kb_name, file_paths=file_paths, **kwargs
-        )
+        return await pipeline.initialize(kb_name=kb_name, file_paths=file_paths, **kwargs)
+
+    async def add_documents(self, kb_name: str, file_paths: List[str], **kwargs) -> bool:
+        self.logger.info(f"Adding {len(file_paths)} document(s) to KB '{kb_name}'")
+        pipeline = self._get_pipeline()
+        if not hasattr(pipeline, "add_documents"):
+            return await pipeline.initialize(kb_name=kb_name, file_paths=file_paths, **kwargs)
+        return await pipeline.add_documents(kb_name=kb_name, file_paths=file_paths, **kwargs)
 
     async def search(
         self,
@@ -95,9 +74,7 @@ class RAGService:
                 {"query": query, "kb_name": kb_name, "trace_layer": "summary"},
             )
 
-            self.logger.info(
-                f"Searching KB '{kb_name}' with query: {query[:50]}..."
-            )
+            self.logger.info(f"Searching KB '{kb_name}' with query: {query[:50]}...")
             pipeline = self._get_pipeline()
 
             await self._emit_tool_event(
@@ -117,6 +94,22 @@ class RAGService:
                 result["content"] = result["answer"]
             result["provider"] = DEFAULT_PROVIDER
 
+            if result.get("error_type") or result.get("needs_reindex"):
+                await self._emit_tool_event(
+                    event_sink,
+                    "status",
+                    result.get("answer") or result.get("content") or "RAG search failed.",
+                    {
+                        "provider": DEFAULT_PROVIDER,
+                        "kb_name": kb_name,
+                        "trace_layer": "summary",
+                        "call_state": "error",
+                        "error_type": result.get("error_type"),
+                        "needs_reindex": bool(result.get("needs_reindex")),
+                    },
+                )
+                return result
+
             answer = result.get("answer") or result.get("content") or ""
             await self._emit_tool_event(
                 event_sink,
@@ -128,6 +121,25 @@ class RAGService:
                     "trace_layer": "summary",
                 },
             )
+
+            # L1 memory trace — best-effort, never blocks the search path.
+            try:
+                from deeptutor.services.memory import get_memory_store
+                from deeptutor.services.memory.trace import TraceEvent
+
+                await get_memory_store().emit(
+                    TraceEvent.new(
+                        "kb",
+                        "query",
+                        {
+                            "query": query,
+                            "kb_name": kb_name,
+                            "answer_chars": len(answer),
+                        },
+                    )
+                )
+            except Exception:
+                pass
 
             return result
 
@@ -143,36 +155,28 @@ class RAGService:
         await event_sink(event_type, message, metadata or {})
 
     def _capture_raw_logs(self, event_sink):
-        from contextlib import ExitStack, contextmanager
-        import asyncio
+        from contextlib import nullcontext
 
-        @contextmanager
-        def _manager():
-            if event_sink is None:
-                yield
-                return
+        if event_sink is None:
+            return nullcontext()
 
-            loop = asyncio.get_running_loop()
-            handler = _RAGRawLogHandler(event_sink, loop)
-            handler.setLevel(logging.DEBUG)
-            targets = [
-                logging.getLogger(name)
-                for name in (
-                    "deeptutor.RAGService",
-                    "deeptutor.RAGForward",
-                    "deeptutor.LlamaIndexPipeline",
-                )
-            ]
-            with ExitStack() as stack:
-                for logger in targets:
-                    logger.addHandler(handler)
-                    stack.callback(logger.removeHandler, handler)
-                try:
-                    yield
-                finally:
-                    handler.close()
+        from deeptutor.logging import capture_process_logs
 
-        return _manager()
+        def emit(event):
+            return self._emit_tool_event(
+                event_sink,
+                "raw_log",
+                event.message,
+                {
+                    "level": event.level,
+                    "logger": event.logger,
+                    "timestamp": event.timestamp,
+                    "trace_layer": "raw",
+                    **event.context,
+                },
+            )
+
+        return capture_process_logs(emit, min_level=logging.INFO)
 
     async def delete(self, kb_name: str) -> bool:
         self.logger.info(f"Deleting KB '{kb_name}'")
@@ -195,58 +199,14 @@ class RAGService:
         query_hints: Optional[List[str]] = None,
         max_queries: int = 3,
     ) -> Dict[str, Any]:
-        import asyncio
+        from .smart_retriever import SmartRetriever
 
-        queries = query_hints if query_hints else await self._generate_queries(context, max_queries)
-
-        tasks = [self.search(query=q, kb_name=kb_name) for q in queries]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        passages: list[str] = []
-        all_sources: list[dict] = []
-        for r in results:
-            if isinstance(r, Exception):
-                continue
-            content = r.get("content") or r.get("answer") or ""
-            if content:
-                passages.append(content)
-                all_sources.append({"query": r.get("query", ""), "provider": r.get("provider", "")})
-
-        if not passages:
-            return {"answer": "", "sources": []}
-
-        aggregated = await self._aggregate(context, passages)
-        return {"answer": aggregated, "sources": all_sources}
-
-    async def _generate_queries(self, context: str, n: int) -> list[str]:
-        try:
-            from deeptutor.services.llm import complete
-
-            prompt = (
-                f"Generate {n} diverse search queries to retrieve information relevant "
-                f"to the following context. Return ONLY the queries, one per line.\n\n"
-                f"Context:\n{context[:2000]}"
-            )
-            raw = await complete(prompt, system_prompt="You are a search query generator.")
-            lines = [l.strip().lstrip("0123456789.-) ") for l in raw.strip().split("\n") if l.strip()]
-            return lines[:n] if lines else [context[:200]]
-        except Exception:
-            return [context[:200]]
-
-    async def _aggregate(self, context: str, passages: list[str]) -> str:
-        try:
-            from deeptutor.services.llm import complete
-
-            combined = "\n---\n".join(passages)
-            prompt = (
-                "Synthesise the following retrieved passages into a concise, "
-                "relevant summary for the given context.\n\n"
-                f"Context:\n{context[:1000]}\n\n"
-                f"Passages:\n{combined[:6000]}"
-            )
-            return await complete(prompt, system_prompt="You are a knowledge synthesiser.")
-        except Exception:
-            return "\n\n".join(passages)
+        return await SmartRetriever(self.search).retrieve(
+            context=context,
+            kb_name=kb_name,
+            query_hints=query_hints,
+            max_queries=max_queries,
+        )
 
     @staticmethod
     def list_providers() -> List[Dict[str, str]]:

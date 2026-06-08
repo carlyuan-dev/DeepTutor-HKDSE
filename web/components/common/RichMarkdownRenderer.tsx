@@ -7,7 +7,11 @@ import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
 import "katex/dist/katex.min.css";
 import { processMarkdownContent } from "@/lib/latex";
-import { normalizeMarkdownForDisplay } from "@/lib/markdown-display";
+import {
+  citationAnchorIdFor,
+  escapeUnknownHtmlTagsForDisplay,
+  normalizeMarkdownForDisplay,
+} from "@/lib/markdown-display";
 import type { MarkdownRendererProps } from "./MarkdownRenderer";
 
 function MermaidLoading() {
@@ -28,6 +32,11 @@ const LazyCodeBlock = dynamic(() => import("./RichCodeBlock"), {
   ssr: false,
   loading: () => null,
 });
+
+const GeogebraOpenCTA = dynamic(
+  () => import("@/components/common/GeogebraOpenCTA"),
+  { ssr: false, loading: () => null },
+);
 
 type PluginBundle = {
   remarkMath?: unknown;
@@ -60,7 +69,9 @@ function headingId(children: React.ReactNode): string | undefined {
 }
 
 function hasRenderableChildren(children: React.ReactNode): boolean {
-  return extractText(children).replace(/[\s\u200B-\u200D\uFEFF]/g, "").length > 0;
+  return (
+    extractText(children).replace(/[\s\u200B-\u200D\uFEFF]/g, "").length > 0
+  );
 }
 
 function hasRenderableDetailsBody(children: React.ReactNode): boolean {
@@ -70,7 +81,10 @@ function hasRenderableDetailsBody(children: React.ReactNode): boolean {
     }
 
     if (!React.isValidElement(child)) return false;
-    if (typeof child.type === "string" && child.type.toLowerCase() === "summary") {
+    if (
+      typeof child.type === "string" &&
+      child.type.toLowerCase() === "summary"
+    ) {
       return false;
     }
 
@@ -95,6 +109,35 @@ function sourceLineAttr(node: any): { "data-source-line"?: number } {
   return {};
 }
 
+// Scrolls only the nearest scrollable ancestor instead of every scrollable
+// ancestor up to the viewport. Using `Element.scrollIntoView` here walks the
+// ancestor chain and can shift outer panes that happen to be scrollable
+// (e.g. when the preview container sits inside a flex layout that briefly
+// gains scroll height), which manifests as the whole page jumping after a
+// citation click.
+function scrollAnchorIntoView(target: HTMLElement): void {
+  let container: HTMLElement | null = target.parentElement;
+  while (container) {
+    const style = window.getComputedStyle(container);
+    const overflowY = style.overflowY;
+    if (
+      (overflowY === "auto" || overflowY === "scroll") &&
+      container.scrollHeight > container.clientHeight
+    ) {
+      break;
+    }
+    container = container.parentElement;
+  }
+  if (!container) {
+    target.scrollIntoView({ block: "start", behavior: "smooth" });
+    return;
+  }
+  const containerRect = container.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const top = targetRect.top - containerRect.top + container.scrollTop;
+  container.scrollTo({ top, behavior: "smooth" });
+}
+
 export default function RichMarkdownRenderer({
   content,
   className = "",
@@ -109,17 +152,23 @@ export default function RichMarkdownRenderer({
   // attributes that map back to the *original* markdown lines (e.g. for
   // editor/preview scroll sync). `normalizeMarkdownForDisplay` strips empty
   // blocks, collapses runs of blank lines, etc, all of which shift line
-  // numbers and break that contract. In that mode we forward the raw text
-  // straight to react-markdown so AST positions stay faithful.
+  // numbers and break that contract. In that mode we only escape unknown
+  // pseudo-HTML tags (preserving line count) so AST positions stay faithful.
   const normalizedContent = useMemo(
-    () => (trackSourceLines ? content : normalizeMarkdownForDisplay(content)),
+    () =>
+      trackSourceLines
+        ? escapeUnknownHtmlTagsForDisplay(content)
+        : normalizeMarkdownForDisplay(content),
     [content, trackSourceLines],
   );
   const [plugins, setPlugins] = useState<PluginBundle>({});
   const isTrace = variant === "trace";
   const gap = isTrace ? "my-1" : variant === "compact" ? "my-2" : "my-4";
-  const cellPad =
-    isTrace ? "px-1.5 py-1" : variant === "compact" ? "px-2 py-1.5" : "px-3 py-2";
+  const cellPad = isTrace
+    ? "px-1.5 py-1"
+    : variant === "compact"
+      ? "px-2 py-1.5"
+      : "px-3 py-2";
   const headingSpacing = variant === "compact" ? "mt-4 mb-2" : "mt-6 mb-3";
   const textColor = "text-[var(--foreground)]";
 
@@ -164,26 +213,46 @@ export default function RichMarkdownRenderer({
     // for scroll sync. So when `trackSourceLines` is on we render the raw
     // markdown verbatim and rely on standard fences (` ```mermaid `, `$$`).
     if (trackSourceLines) return normalizedContent;
-    return enableMath || enableMermaid ? processMarkdownContent(normalizedContent) : normalizedContent;
+    return enableMath || enableMermaid
+      ? processMarkdownContent(normalizedContent)
+      : normalizedContent;
   }, [enableMath, enableMermaid, normalizedContent, trackSourceLines]);
 
   const traceComponents: Record<string, React.ComponentType<any>> = {
-    p: ({ node, ...props }: any) => <p className="mb-1.5 last:mb-0" {...props} />,
-    h1: ({ node, children }: any) => <p className="mb-1.5 font-semibold">{children}</p>,
-    h2: ({ node, children }: any) => <p className="mb-1.5 font-semibold">{children}</p>,
-    h3: ({ node, children }: any) => <p className="mb-1.5 font-semibold">{children}</p>,
-    h4: ({ node, children }: any) => <p className="mb-1.5 font-semibold">{children}</p>,
-    h5: ({ node, children }: any) => <p className="mb-1.5 font-semibold">{children}</p>,
-    h6: ({ node, children }: any) => <p className="mb-1.5 font-semibold">{children}</p>,
+    p: ({ node, ...props }: any) => (
+      <p className="mb-1.5 last:mb-0" {...props} />
+    ),
+    h1: ({ node, children }: any) => (
+      <p className="mb-1.5 font-semibold">{children}</p>
+    ),
+    h2: ({ node, children }: any) => (
+      <p className="mb-1.5 font-semibold">{children}</p>
+    ),
+    h3: ({ node, children }: any) => (
+      <p className="mb-1.5 font-semibold">{children}</p>
+    ),
+    h4: ({ node, children }: any) => (
+      <p className="mb-1.5 font-semibold">{children}</p>
+    ),
+    h5: ({ node, children }: any) => (
+      <p className="mb-1.5 font-semibold">{children}</p>
+    ),
+    h6: ({ node, children }: any) => (
+      <p className="mb-1.5 font-semibold">{children}</p>
+    ),
     strong: ({ node, children }: any) => (
-      <strong className="font-semibold text-[var(--foreground)]">{children}</strong>
+      <strong className="font-semibold text-[var(--foreground)]">
+        {children}
+      </strong>
     ),
     em: ({ node, children }: any) => <em className="italic">{children}</em>,
     a: ({ node, children }: any) => (
       <span className="underline underline-offset-2">{children}</span>
     ),
     blockquote: ({ node, children }: any) => (
-      <div className="border-l border-current/20 pl-3 opacity-80">{children}</div>
+      <div className="border-l border-current/20 pl-3 opacity-80">
+        {children}
+      </div>
     ),
     pre: ({ children }: any) => <>{children}</>,
     code: ({ node, children }: any) => (
@@ -193,8 +262,12 @@ export default function RichMarkdownRenderer({
     ),
     img: () => null,
     hr: () => <div className="my-1 h-px bg-current opacity-10" />,
-    ul: ({ node, ...props }: any) => <ul className="my-1 ml-4 list-disc" {...props} />,
-    ol: ({ node, ...props }: any) => <ol className="my-1 ml-4 list-decimal" {...props} />,
+    ul: ({ node, ...props }: any) => (
+      <ul className="my-1 ml-4 list-disc" {...props} />
+    ),
+    ol: ({ node, ...props }: any) => (
+      <ol className="my-1 ml-4 list-decimal" {...props} />
+    ),
     li: ({ node, ...props }: any) => <li className="my-0.5 pl-0" {...props} />,
     table: ({ node, children, ...props }: any) =>
       hasRenderableChildren(children) ? (
@@ -204,7 +277,9 @@ export default function RichMarkdownRenderer({
           </table>
         </div>
       ) : null,
-    thead: ({ node, ...props }: any) => <thead className="bg-[var(--muted)]/50" {...props} />,
+    thead: ({ node, ...props }: any) => (
+      <thead className="bg-[var(--muted)]/50" {...props} />
+    ),
     th: ({ node, ...props }: any) => (
       <th
         className="border-b border-[var(--border)]/50 px-1.5 py-0.5 text-left font-medium"
@@ -213,12 +288,20 @@ export default function RichMarkdownRenderer({
     ),
     tbody: ({ node, ...props }: any) => <tbody {...props} />,
     td: ({ node, ...props }: any) => (
-      <td className="border-b border-[var(--border)]/30 px-1.5 py-0.5" {...props} />
+      <td
+        className="border-b border-[var(--border)]/30 px-1.5 py-0.5"
+        {...props}
+      />
     ),
     tr: ({ node, ...props }: any) => <tr {...props} />,
     input: ({ node, type, ...props }: any) =>
       type === "checkbox" ? (
-        <input type="checkbox" readOnly className="mr-1 align-middle" {...props} />
+        <input
+          type="checkbox"
+          readOnly
+          className="mr-1 align-middle"
+          {...props}
+        />
       ) : null,
     progress: () => null,
     meter: () => null,
@@ -232,7 +315,8 @@ export default function RichMarkdownRenderer({
       hasRenderableChildren(children) ? <span>{children}</span> : null,
   };
 
-  const lineAttr = (node: any) => (trackSourceLines ? sourceLineAttr(node) : {});
+  const lineAttr = (node: any) =>
+    trackSourceLines ? sourceLineAttr(node) : {};
 
   const headingComponents = {
     h1: ({ node, children, className: headingClassName, ...props }: any) => {
@@ -338,12 +422,17 @@ export default function RichMarkdownRenderer({
           className={`overflow-x-auto rounded-lg border border-[var(--border)] shadow-sm ${gap}`}
           {...lineAttr(node)}
         >
-          <table className="min-w-full divide-y divide-[var(--border)] text-sm" {...props}>
+          <table
+            className="min-w-full divide-y divide-[var(--border)] text-sm"
+            {...props}
+          >
             {children}
           </table>
         </div>
       ) : null,
-    thead: ({ node, ...props }: any) => <thead className="bg-[var(--muted)]" {...props} />,
+    thead: ({ node, ...props }: any) => (
+      <thead className="bg-[var(--muted)]" {...props} />
+    ),
     th: ({ node, ...props }: any) => (
       <th
         className={`border-b border-[var(--border)] text-left font-semibold text-[var(--foreground)] ${cellPad}`}
@@ -351,7 +440,10 @@ export default function RichMarkdownRenderer({
       />
     ),
     tbody: ({ node, ...props }: any) => (
-      <tbody className="divide-y divide-[var(--border)] bg-[var(--card)]" {...props} />
+      <tbody
+        className="divide-y divide-[var(--border)] bg-[var(--card)]"
+        {...props}
+      />
     ),
     td: ({ node, ...props }: any) => (
       <td
@@ -365,7 +457,9 @@ export default function RichMarkdownRenderer({
     pre: ({ children }: any) => <>{children}</>,
     code: ({ node, className: blockClassName, children, ...props }: any) => {
       const raw = String(children).replace(/\n$/, "");
-      const langMatch = /language-([A-Za-z0-9_+#.-]+)/.exec(blockClassName || "");
+      const langMatch = /language-([A-Za-z0-9_+#.-]+)/.exec(
+        blockClassName || "",
+      );
       const lang = langMatch?.[1]?.toLowerCase() || "";
       const isMultiline = raw.includes("\n");
       const lineProps = isMultiline ? lineAttr(node) : {};
@@ -374,6 +468,29 @@ export default function RichMarkdownRenderer({
         return (
           <div {...lineProps}>
             <LazyMermaid chart={raw} className={gap} />
+          </div>
+        );
+      }
+
+      if (lang === "ggbscript" && enableCode) {
+        // Backend emits ```ggbscript[page_id;title]. We don't render the
+        // applet inline anymore — the chat answer stays text-only and we
+        // surface a CTA card. Clicking it opens (or focuses) a GeoGebra
+        // tab inside the right-hand SessionViewerPanel where the user can
+        // interact with the figure without the chat scroll fighting it.
+        const metaMatch = /language-ggbscript\[([^;\]]*)(?:;([^\]]*))?\]/.exec(
+          blockClassName || "",
+        );
+        const ggbPayloadId = metaMatch?.[1]?.trim() || undefined;
+        const ggbTitle = metaMatch?.[2]?.trim() || undefined;
+        return (
+          <div {...lineProps}>
+            <GeogebraOpenCTA
+              script={raw}
+              payloadId={ggbPayloadId}
+              title={ggbTitle}
+              className={gap}
+            />
           </div>
         );
       }
@@ -400,7 +517,9 @@ export default function RichMarkdownRenderer({
             {...lineProps}
           >
             <pre className="overflow-x-auto p-4 text-sm leading-relaxed text-[#e5e7eb]">
-              <code className="md-code-block__code" {...props}>{raw}</code>
+              <code className="md-code-block__code" {...props}>
+                {raw}
+              </code>
             </pre>
           </div>
         );
@@ -418,32 +537,59 @@ export default function RichMarkdownRenderer({
     a: ({ node, href, children, title, ...props }: any) => {
       const isCitation = title === "citation";
       const isHashLink = href?.startsWith("#");
-      const external = href?.startsWith("http://") || href?.startsWith("https://");
+      const external =
+        href?.startsWith("http://") || href?.startsWith("https://");
 
       if (isCitation) {
         const label = extractText(children);
         const ids = label.split(/\s*,\s*/);
-        const scrollToRef = (event: React.MouseEvent) => {
+        const scrollToRef = (event: React.MouseEvent, id?: string) => {
           event.preventDefault();
-          const target = document.getElementById("references");
-          target?.scrollIntoView({ block: "start", behavior: "smooth" });
+          const hashTarget =
+            id && citationAnchorIdFor(id)
+              ? citationAnchorIdFor(id)
+              : href?.startsWith("#")
+                ? decodeURIComponent(href.slice(1))
+                : "references";
+          const target =
+            document.getElementById(hashTarget || "") ??
+            document.getElementById("references");
+          const parentDetails = target?.closest("details");
+          if (parentDetails instanceof HTMLDetailsElement) {
+            parentDetails.open = true;
+          }
+          if (target) scrollAnchorIntoView(target);
         };
         return (
-          <span className="citation-group mx-0.5 text-[0.78em] leading-snug text-[var(--muted-foreground)]" {...props}>
+          <span
+            className="citation-group mx-0.5 text-[0.78em] leading-snug text-[var(--muted-foreground)]"
+            {...props}
+          >
             [
             {ids.map((id, idx) => {
               const prefixMatch = id.match(/^(web|rag|code|src)-/);
               const prefix = prefixMatch?.[1] ?? "";
-              const num = prefix && prefixMatch ? id.slice(prefixMatch[0].length) : id;
+              const num =
+                prefix && prefixMatch ? id.slice(prefixMatch[0].length) : id;
+              const citationAnchor = citationAnchorIdFor(id);
               return (
                 <React.Fragment key={id}>
                   {idx > 0 && ", "}
                   <a
-                    href={href}
-                    onClick={scrollToRef}
+                    href={citationAnchor ? `#${citationAnchor}` : href}
+                    onClick={(event) => scrollToRef(event, id)}
                     className="cursor-pointer text-[var(--primary)] no-underline transition-colors hover:text-[var(--primary)]/70 hover:underline"
                   >
-                    {prefix ? <><span className="text-[0.85em] font-semibold uppercase tracking-wide">{prefix}</span>{num}</> : num}
+                    {prefix ? (
+                      <>
+                        <span className="text-[0.85em] font-semibold uppercase tracking-wide">
+                          {prefix}
+                        </span>
+                        {num}
+                      </>
+                    ) : (
+                      num
+                    )}
                   </a>
                 </React.Fragment>
               );
@@ -456,14 +602,16 @@ export default function RichMarkdownRenderer({
       return (
         <a
           href={href}
-          {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+          {...(external
+            ? { target: "_blank", rel: "noopener noreferrer" }
+            : {})}
           onClick={(event) => {
             if (!isHashLink || !href) return;
 
             event.preventDefault();
             const targetId = decodeURIComponent(href.slice(1));
             const target = document.getElementById(targetId);
-            target?.scrollIntoView({ block: "start", behavior: "smooth" });
+            if (target) scrollAnchorIntoView(target);
           }}
           className="text-[var(--primary)] underline decoration-[var(--primary)]/40 underline-offset-2 transition-colors hover:decoration-[var(--primary)]"
           {...props}
@@ -490,7 +638,11 @@ export default function RichMarkdownRenderer({
       />
     ),
     hr: ({ node, ...props }: any) => (
-      <hr className={`${gap} h-px border-none bg-[var(--border)]`} {...lineAttr(node)} {...props} />
+      <hr
+        className={`${gap} h-px border-none bg-[var(--border)]`}
+        {...lineAttr(node)}
+        {...props}
+      />
     ),
     input: ({ node, type, checked, ...props }: any) =>
       type === "checkbox" ? (

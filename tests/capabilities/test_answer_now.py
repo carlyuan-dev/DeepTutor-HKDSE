@@ -41,7 +41,6 @@ from deeptutor.core.context import UnifiedContext
 from deeptutor.core.stream import StreamEvent, StreamEventType
 from deeptutor.core.stream_bus import StreamBus
 
-
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
@@ -179,10 +178,7 @@ class TestFormatTraceSummary:
         assert len(out) < 1000
 
     def test_truncates_overall_transcript(self) -> None:
-        events = [
-            {"type": "thinking", "stage": "s", "content": "a" * 700}
-            for _ in range(20)
-        ]
+        events = [{"type": "thinking", "stage": "s", "content": "a" * 700} for _ in range(20)]
         out = format_trace_summary(events, language="en")
         assert len(out) <= 6000
         assert out.endswith("...")
@@ -254,13 +250,16 @@ class TestChatAnswerNow:
 
         cfg = _fake_llm_config()
 
-        with patch.object(
-            ap_module.AgenticChatPipeline,
-            "_stream_messages",
-            _fake_stream,
-        ), patch(
-            "deeptutor.agents.chat.agentic_pipeline.get_llm_config",
-            return_value=cfg,
+        with (
+            patch.object(
+                ap_module.AgenticChatPipeline,
+                "_stream_messages",
+                _fake_stream,
+            ),
+            patch(
+                "deeptutor.agents.chat.agentic_pipeline.get_llm_config",
+                return_value=cfg,
+            ),
         ):
             from deeptutor.capabilities.chat import ChatCapability
 
@@ -269,9 +268,7 @@ class TestChatAnswerNow:
                 payload={
                     "original_user_message": "Explain Fourier",
                     "partial_response": "We had begun to think about ...",
-                    "events": [
-                        {"type": "thinking", "stage": "thinking", "content": "warming up"}
-                    ],
+                    "events": [{"type": "thinking", "stage": "thinking", "content": "warming up"}],
                 },
             )
             bus = StreamBus()
@@ -284,174 +281,209 @@ class TestChatAnswerNow:
             assert result.metadata.get("answer_now") is True
             assert "Hello world" in str(result.metadata.get("response", ""))
 
-
-class TestDeepSolveAnswerNow:
     @pytest.mark.asyncio
-    async def test_jumps_to_writing_stage(self) -> None:
+    async def test_chat_answer_now_strips_protocol_label(self) -> None:
+        from deeptutor.agents.chat import agentic_pipeline as ap_module
+
+        async def _fake_stream(self: Any, _messages: Any, **_kwargs: Any):
+            for chunk in ("``FI", "NISH``\n", "Hello now"):
+                yield chunk
+
         cfg = _fake_llm_config()
-        chunks = ["The Fourier transform ", "decomposes signals."]
-        with patch.object(_answer_now, "get_llm_config", return_value=cfg), patch.object(
-            _answer_now, "llm_stream", _make_stream_factory(chunks)
+
+        with (
+            patch.object(
+                ap_module.AgenticChatPipeline,
+                "_stream_messages",
+                _fake_stream,
+            ),
+            patch(
+                "deeptutor.agents.chat.agentic_pipeline.get_llm_config",
+                return_value=cfg,
+            ),
         ):
-            from deeptutor.capabilities.deep_solve import DeepSolveCapability
+            from deeptutor.capabilities.chat import ChatCapability
 
             ctx = _build_context(
-                capability="deep_solve",
+                capability="chat",
                 payload={
-                    "original_user_message": "Explain Fourier transform",
-                    "partial_response": "Planning ...",
-                    "events": [
-                        {
-                            "type": "thinking",
-                            "stage": "planning",
-                            "content": "Need to break this into intuition + math",
-                        }
-                    ],
-                },
-                language="en",
-            )
-            bus = StreamBus()
-            cap = DeepSolveCapability()
-            events = await _drain(bus, cap.run(ctx, bus))
-
-            stage_starts = [
-                e for e in events if e.type == StreamEventType.STAGE_START
-            ]
-            assert any(e.stage == "writing" for e in stage_starts)
-
-            text = _content_text(events)
-            assert "Skipped" in text  # the skip notice prepended
-            assert "decomposes signals" in text
-
-            result = _result_event(events)
-            assert result.metadata.get("metadata", {}).get("answer_now") is True
-            assert result.metadata.get("response", "").endswith("decomposes signals.")
-            assert result.metadata.get("output_dir") == ""
-
-
-class TestDeepQuestionAnswerNow:
-    @pytest.mark.asyncio
-    async def test_emits_quiz_envelope(self) -> None:
-        cfg = _fake_llm_config()
-        payload_json = json.dumps(
-            {
-                "questions": [
-                    {
-                        "question_id": "q_1",
-                        "question": "What is 2+2?",
-                        "question_type": "choice",
-                        "options": {"A": "3", "B": "4", "C": "5"},
-                        "correct_answer": "B",
-                        "explanation": "Basic arithmetic.",
-                        "difficulty": "easy",
-                        "concentration": "arithmetic",
-                    },
-                    {
-                        "question_id": "q_2",
-                        "question": "Define derivative.",
-                        "question_type": "written",
-                        "correct_answer": "Limit of difference quotient.",
-                        "explanation": "Standard textbook definition.",
-                    },
-                ]
-            }
-        )
-        with patch.object(_answer_now, "get_llm_config", return_value=cfg), patch.object(
-            _answer_now, "llm_stream", _make_stream_factory([payload_json])
-        ):
-            from deeptutor.capabilities.deep_question import DeepQuestionCapability
-
-            ctx = _build_context(
-                capability="deep_question",
-                payload={
-                    "original_user_message": "Generate calc warm-ups",
+                    "original_user_message": "Explain Fourier",
+                    "partial_response": "Partial trace",
                     "events": [],
                 },
-                config_overrides={"num_questions": 2, "topic": "calculus warm-ups"},
             )
             bus = StreamBus()
-            cap = DeepQuestionCapability()
+            cap = ChatCapability()
             events = await _drain(bus, cap.run(ctx, bus))
 
-            result = _result_event(events)
-            summary = result.metadata.get("summary") or {}
-            results = summary.get("results") or []
-            assert len(results) == 2
-            assert results[0]["qa_pair"]["question"] == "What is 2+2?"
-            assert results[0]["qa_pair"]["options"]["B"] == "4"
-            assert result.metadata.get("mode") == "answer_now"
-            assert result.metadata.get("metadata", {}).get("answer_now") is True
-
-            # The rendered markdown should make it into a CONTENT event so
-            # the chat surface still shows a textual recap of the quiz.
             text = _content_text(events)
-            assert "What is 2+2?" in text
-            assert "Skipped" in text  # skip notice
-
-    @pytest.mark.asyncio
-    async def test_handles_unparseable_json_gracefully(self) -> None:
-        cfg = _fake_llm_config()
-        with patch.object(_answer_now, "get_llm_config", return_value=cfg), patch.object(
-            _answer_now, "llm_stream", _make_stream_factory(["not json at all"])
-        ):
-            from deeptutor.capabilities.deep_question import DeepQuestionCapability
-
-            ctx = _build_context(
-                capability="deep_question",
-                payload={"original_user_message": "x", "events": []},
-                config_overrides={"num_questions": 1, "topic": "x"},
-            )
-            bus = StreamBus()
-            cap = DeepQuestionCapability()
-            events = await _drain(bus, cap.run(ctx, bus))
-
-            # Should still produce a result event with a placeholder
-            # question, not crash with a JSONDecodeError.
+            assert "FINISH" not in text
+            assert text == "Hello now"
             result = _result_event(events)
-            results = (result.metadata.get("summary") or {}).get("results") or []
-            assert len(results) == 1
-            assert results[0]["qa_pair"]["question_type"] == "written"
+            assert result.metadata.get("response") == "Hello now"
 
-
-class TestDeepResearchAnswerNow:
     @pytest.mark.asyncio
-    async def test_emits_report_envelope(self) -> None:
+    async def test_chat_answer_now_strips_bare_protocol_label(self) -> None:
+        from deeptutor.agents.chat import agentic_pipeline as ap_module
+
+        async def _fake_stream(self: Any, _messages: Any, **_kwargs: Any):
+            for chunk in ("FI", "NISH\n", "Hello bare"):
+                yield chunk
+
         cfg = _fake_llm_config()
-        chunks = ["# Report\n\n", "Body section.\n\n", "## Conclusion\n\nWrap-up."]
-        with patch.object(_answer_now, "get_llm_config", return_value=cfg), patch.object(
-            _answer_now, "llm_stream", _make_stream_factory(chunks)
+
+        with (
+            patch.object(
+                ap_module.AgenticChatPipeline,
+                "_stream_messages",
+                _fake_stream,
+            ),
+            patch(
+                "deeptutor.agents.chat.agentic_pipeline.get_llm_config",
+                return_value=cfg,
+            ),
         ):
-            from deeptutor.capabilities.deep_research import DeepResearchCapability
+            from deeptutor.capabilities.chat import ChatCapability
 
             ctx = _build_context(
-                capability="deep_research",
+                capability="chat",
                 payload={
-                    "original_user_message": "State of LLM evals 2025",
-                    "events": [
-                        {
-                            "type": "tool_result",
-                            "stage": "researching",
-                            "content": "Found 3 evals.",
-                            "metadata": {"tool": "web_search"},
-                        }
-                    ],
+                    "original_user_message": "Explain Fourier",
+                    "partial_response": "",
+                    "events": [],
                 },
-                language="en",
             )
             bus = StreamBus()
-            cap = DeepResearchCapability()
+            cap = ChatCapability()
             events = await _drain(bus, cap.run(ctx, bus))
 
-            stage_starts = [
-                e for e in events if e.type == StreamEventType.STAGE_START
-            ]
-            assert any(e.stage == "reporting" for e in stage_starts)
-
+            text = _content_text(events)
+            assert "FINISH" not in text
+            assert text == "Hello bare"
             result = _result_event(events)
-            assert result.metadata.get("metadata", {}).get("answer_now") is True
-            response = str(result.metadata.get("response", ""))
-            assert "# Report" in response
-            assert "Conclusion" in response
+            assert result.metadata.get("response") == "Hello bare"
+
+    @pytest.mark.asyncio
+    async def test_chat_answer_now_strips_variable_backtick_protocol_label(self) -> None:
+        from deeptutor.agents.chat import agentic_pipeline as ap_module
+
+        async def _fake_stream(self: Any, _messages: Any, **_kwargs: Any):
+            for chunk in ("```FI", "NISH```\n", "Hello fenced"):
+                yield chunk
+
+        cfg = _fake_llm_config()
+
+        with (
+            patch.object(
+                ap_module.AgenticChatPipeline,
+                "_stream_messages",
+                _fake_stream,
+            ),
+            patch(
+                "deeptutor.agents.chat.agentic_pipeline.get_llm_config",
+                return_value=cfg,
+            ),
+        ):
+            from deeptutor.capabilities.chat import ChatCapability
+
+            ctx = _build_context(
+                capability="chat",
+                payload={
+                    "original_user_message": "Explain Fourier",
+                    "partial_response": "",
+                    "events": [],
+                },
+            )
+            bus = StreamBus()
+            cap = ChatCapability()
+            events = await _drain(bus, cap.run(ctx, bus))
+
+            text = _content_text(events)
+            assert "FINISH" not in text
+            assert text == "Hello fenced"
+            result = _result_event(events)
+            assert result.metadata.get("response") == "Hello fenced"
+
+    @pytest.mark.asyncio
+    async def test_chat_answer_now_strips_spaced_protocol_label(self) -> None:
+        from deeptutor.agents.chat import agentic_pipeline as ap_module
+
+        async def _fake_stream(self: Any, _messages: Any, **_kwargs: Any):
+            for chunk in ("\u200b`` FI", "NISH ``\n", "Hello spaced"):
+                yield chunk
+
+        cfg = _fake_llm_config()
+
+        with (
+            patch.object(
+                ap_module.AgenticChatPipeline,
+                "_stream_messages",
+                _fake_stream,
+            ),
+            patch(
+                "deeptutor.agents.chat.agentic_pipeline.get_llm_config",
+                return_value=cfg,
+            ),
+        ):
+            from deeptutor.capabilities.chat import ChatCapability
+
+            ctx = _build_context(
+                capability="chat",
+                payload={
+                    "original_user_message": "Explain Fourier",
+                    "partial_response": "",
+                    "events": [],
+                },
+            )
+            bus = StreamBus()
+            cap = ChatCapability()
+            events = await _drain(bus, cap.run(ctx, bus))
+
+            text = _content_text(events)
+            assert "FINISH" not in text
+            assert text == "Hello spaced"
+            result = _result_event(events)
+            assert result.metadata.get("response") == "Hello spaced"
+
+    @pytest.mark.asyncio
+    async def test_chat_answer_now_preserves_normal_word_prefix(self) -> None:
+        from deeptutor.agents.chat import agentic_pipeline as ap_module
+
+        async def _fake_stream(self: Any, _messages: Any, **_kwargs: Any):
+            for chunk in ("FIN", "ISHED tasks stay visible."):
+                yield chunk
+
+        cfg = _fake_llm_config()
+
+        with (
+            patch.object(
+                ap_module.AgenticChatPipeline,
+                "_stream_messages",
+                _fake_stream,
+            ),
+            patch(
+                "deeptutor.agents.chat.agentic_pipeline.get_llm_config",
+                return_value=cfg,
+            ),
+        ):
+            from deeptutor.capabilities.chat import ChatCapability
+
+            ctx = _build_context(
+                capability="chat",
+                payload={
+                    "original_user_message": "Explain finished states",
+                    "partial_response": "",
+                    "events": [],
+                },
+            )
+            bus = StreamBus()
+            cap = ChatCapability()
+            events = await _drain(bus, cap.run(ctx, bus))
+
+            text = _content_text(events)
+            assert text == "FINISHED tasks stay visible."
+            result = _result_event(events)
+            assert result.metadata.get("response") == "FINISHED tasks stay visible."
 
 
 class TestVisualizeAnswerNow:
@@ -464,8 +496,9 @@ class TestVisualizeAnswerNow:
                 "code": "<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'/>",
             }
         )
-        with patch.object(_answer_now, "get_llm_config", return_value=cfg), patch.object(
-            _answer_now, "llm_stream", _make_stream_factory([payload_json])
+        with (
+            patch.object(_answer_now, "get_llm_config", return_value=cfg),
+            patch.object(_answer_now, "llm_stream", _make_stream_factory([payload_json])),
         ):
             from deeptutor.capabilities.visualize import VisualizeCapability
 
@@ -495,8 +528,9 @@ class TestVisualizeAnswerNow:
     async def test_falls_back_to_svg_when_render_type_invalid(self) -> None:
         cfg = _fake_llm_config()
         payload_json = json.dumps({"render_type": "totally-bogus", "code": "x"})
-        with patch.object(_answer_now, "get_llm_config", return_value=cfg), patch.object(
-            _answer_now, "llm_stream", _make_stream_factory([payload_json])
+        with (
+            patch.object(_answer_now, "get_llm_config", return_value=cfg),
+            patch.object(_answer_now, "llm_stream", _make_stream_factory([payload_json])),
         ):
             from deeptutor.capabilities.visualize import VisualizeCapability
 
@@ -514,9 +548,10 @@ class TestVisualizeAnswerNow:
     @pytest.mark.asyncio
     async def test_strips_code_fences_around_json(self) -> None:
         cfg = _fake_llm_config()
-        fenced = "```json\n{\"render_type\": \"mermaid\", \"code\": \"graph TD;A-->B\"}\n```"
-        with patch.object(_answer_now, "get_llm_config", return_value=cfg), patch.object(
-            _answer_now, "llm_stream", _make_stream_factory([fenced])
+        fenced = '```json\n{"render_type": "mermaid", "code": "graph TD;A-->B"}\n```'
+        with (
+            patch.object(_answer_now, "get_llm_config", return_value=cfg),
+            patch.object(_answer_now, "llm_stream", _make_stream_factory([fenced])),
         ):
             from deeptutor.capabilities.visualize import VisualizeCapability
 
@@ -544,14 +579,14 @@ class TestMathAnimatorAnswerNow:
     async def test_skips_analysis_design_summary_but_calls_codegen_and_render(
         self,
     ) -> None:
+        # Skip the whole test cleanly when manim isn't available, since
+        # math_animator.run() short-circuits before we can patch anything.
+        import importlib.util as _ilu
+
         from deeptutor.agents.math_animator.models import (
             GeneratedCode,
             RenderResult,
         )
-
-        # Skip the whole test cleanly when manim isn't available, since
-        # math_animator.run() short-circuits before we can patch anything.
-        import importlib.util as _ilu
 
         if _ilu.find_spec("manim") is None:
             pytest.skip("manim not installed; math_animator answer-now test skipped")
@@ -562,9 +597,7 @@ class TestMathAnimatorAnswerNow:
         design_agent_calls: list[Any] = []
         summary_agent_calls: list[Any] = []
 
-        with patch(
-            "deeptutor.agents.math_animator.pipeline.MathAnimatorPipeline"
-        ) as PipelineCls:
+        with patch("deeptutor.agents.math_animator.pipeline.MathAnimatorPipeline") as PipelineCls:
             pipeline_instance = PipelineCls.return_value
             pipeline_instance.run_analysis = AsyncMock(
                 side_effect=lambda *a, **k: analysis_agent_calls.append(("a",))
@@ -631,18 +664,24 @@ class TestNormalPathWhenNoAnswerNow:
     pipeline would be silently shadowed."""
 
     @pytest.mark.asyncio
-    async def test_deep_solve_without_payload_calls_main_solver(self) -> None:
+    async def test_deep_solve_without_payload_calls_pipeline(self) -> None:
         from deeptutor.capabilities.deep_solve import DeepSolveCapability
 
-        # We patch MainSolver at its import site inside the capability.
-        with patch(
-            "deeptutor.agents.solve.main_solver.MainSolver"
-        ) as SolverCls, patch(
-            "deeptutor.services.llm.config.get_llm_config", return_value=_fake_llm_config()
+        # Without an answer_now payload the capability must go through the
+        # normal SolvePipeline path (not the fast-path), and forward its
+        # ``stream.result`` payload to the consumer.
+        with (
+            patch("deeptutor.capabilities.deep_solve.SolvePipeline") as PipelineCls,
+            patch("deeptutor.services.llm.config.get_llm_config", return_value=_fake_llm_config()),
         ):
-            solver = SolverCls.return_value
-            solver.ainit = AsyncMock()
-            solver.solve = AsyncMock(return_value={"final_answer": "from solver"})
+            pipeline = PipelineCls.return_value
+
+            async def _run(*, stream: StreamBus, **_kwargs: Any) -> dict[str, Any]:
+                payload = {"response": "from pipeline", "metadata": {}}
+                await stream.result(payload, source="deep_solve")
+                return payload
+
+            pipeline.run = AsyncMock(side_effect=_run)
 
             cap = DeepSolveCapability()
             ctx = _build_context(
@@ -653,6 +692,6 @@ class TestNormalPathWhenNoAnswerNow:
             bus = StreamBus()
             events = await _drain(bus, cap.run(ctx, bus))
 
-            solver.solve.assert_awaited_once()
+            pipeline.run.assert_awaited_once()
             result = _result_event(events)
-            assert "from solver" in str(result.metadata.get("response", ""))
+            assert "from pipeline" in str(result.metadata.get("response", ""))

@@ -22,12 +22,10 @@ import asyncio
 import os
 from pathlib import Path
 import shutil
+import sys
 import tempfile
 
-from dotenv import load_dotenv
-
 project_root = Path(__file__).resolve().parents[3]
-load_dotenv(project_root / ".env", override=False)
 
 
 # Test file path
@@ -418,8 +416,7 @@ class TestPipelineIntegration:
             import pytest as _pytest
 
             _pytest.skip(
-                "RAG pipeline integration test skipped "
-                "(set RAG_INTEGRATION_TESTS=1 to enable)."
+                "RAG pipeline integration test skipped (set RAG_INTEGRATION_TESTS=1 to enable)."
             )
 
         pipeline_name = request.config.getoption("--pipeline")

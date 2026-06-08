@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import Link from "next/link";
 import { Compass } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import MarkdownRenderer from "@/components/common/MarkdownRenderer";
 import type { Block, ConceptGraph } from "@/lib/book-types";
@@ -12,31 +13,6 @@ export interface ConceptGraphBlockProps {
   bookId?: string;
   currentPageId?: string;
   language?: string;
-}
-
-const LABELS: Record<string, {
-  chapterMap: (n: number, e: number) => string;
-  conceptMap: (n: number, e: number) => string;
-  chapterIndex: string;
-  noChapters: string;
-}> = {
-  zh: {
-    chapterMap: (n, e) => `章节图谱 · ${n} 章 · ${e} 条依赖`,
-    conceptMap: (n, e) => `概念图 · ${n} 个概念 · ${e} 条关系`,
-    chapterIndex: "章节索引",
-    noChapters: "（暂无章节）",
-  },
-  en: {
-    chapterMap: (n, e) => `Chapter map · ${n} chapters · ${e} dependencies`,
-    conceptMap: (n, e) => `Concept map · ${n} concepts · ${e} relations`,
-    chapterIndex: "Chapter index",
-    noChapters: "(No chapters yet)",
-  },
-};
-
-function pickLabels(language?: string) {
-  const code = (language || "en").toLowerCase().split("-")[0];
-  return LABELS[code] ?? LABELS.en;
 }
 
 interface ChapterIndexEntry {
@@ -81,11 +57,13 @@ export default function ConceptGraphBlock({
   block,
   bookId,
   currentPageId: _currentPageId,
-  language,
+  language: _language,
 }: ConceptGraphBlockProps) {
-  const labels = pickLabels(language);
+  const { t } = useTranslation();
   const code =
-    (block.payload?.code as { language?: string; content?: string } | undefined) || {};
+    (block.payload?.code as
+      | { language?: string; content?: string }
+      | undefined) || {};
   const mermaidSrc = String(code.content || "").trim();
   const graph = asGraph(block.payload?.graph);
   const index = asIndex(block.payload?.index);
@@ -94,7 +72,7 @@ export default function ConceptGraphBlock({
     () =>
       mermaidSrc
         ? `\`\`\`mermaid\n${mermaidSrc}\n\`\`\``
-        : "```mermaid\ngraph TD\n  empty[\"(no concepts yet)\"]\n```",
+        : '```mermaid\ngraph TD\n  empty["(no concepts yet)"]\n```',
     [mermaidSrc],
   );
 
@@ -110,8 +88,20 @@ export default function ConceptGraphBlock({
           <Compass className="h-3.5 w-3.5" />
           <span>
             {isChapterMap
-              ? labels.chapterMap(chapterNodes.length, edgeCount)
-              : labels.conceptMap(nodeCount, edgeCount)}
+              ? t(
+                  "Chapter map · {{chapters}} chapters · {{dependencies}} dependencies",
+                  {
+                    chapters: chapterNodes.length,
+                    dependencies: edgeCount,
+                  },
+                )
+              : t(
+                  "Concept map · {{concepts}} concepts · {{relations}} relations",
+                  {
+                    concepts: nodeCount,
+                    relations: edgeCount,
+                  },
+                )}
           </span>
         </header>
         <div className="max-h-[60vh] overflow-auto">
@@ -121,12 +111,12 @@ export default function ConceptGraphBlock({
 
       <aside className="rounded-2xl border border-[var(--border)] bg-[var(--card)]/60 p-3 shadow-sm">
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-          {labels.chapterIndex}
+          {t("Chapter index")}
         </h3>
         <ol className="space-y-1.5">
           {index.chapters.length === 0 && (
             <li className="text-xs italic text-[var(--muted-foreground)]">
-              {labels.noChapters}
+              {t("(No chapters yet)")}
             </li>
           )}
           {index.chapters.map((chapter, idx) => {

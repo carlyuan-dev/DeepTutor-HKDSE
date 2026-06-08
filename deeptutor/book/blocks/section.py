@@ -22,19 +22,16 @@ for ``SectionBlock.tsx`` on the frontend (see Phase 4.d).
 from __future__ import annotations
 
 import asyncio
-import json
+import logging
 from typing import Any
 
-from deeptutor.logging import get_logger
-from deeptutor.utils.json_parser import parse_json_response
-
 from ..models import BlockType, SourceAnchor, SourceChunk
-from ._llm_writer import llm_text
+from ._llm_writer import llm_json, llm_text
 from ._prompts import get_book_prompt, load_book_prompts
 from ._rag_helpers import optional_rag_lookup
 from .base import BlockContext, BlockGenerator, GenerationFailure
 
-logger = get_logger("book.blocks.section")
+logger = logging.getLogger(__name__)
 
 
 _DEFAULT_SUBSECTION_WORDS = 320
@@ -65,9 +62,7 @@ class SectionGenerator(BlockGenerator):
         params = ctx.block.params
         chapter_title = params.get("chapter_title", ctx.chapter.title)
         chapter_summary = params.get("chapter_summary", ctx.chapter.summary)
-        objectives: list[str] = (
-            params.get("objectives") or ctx.chapter.learning_objectives or []
-        )
+        objectives: list[str] = params.get("objectives") or ctx.chapter.learning_objectives or []
         focus_topic: str = str(params.get("focus") or chapter_title)
         section_role: str = str(params.get("role") or "core")
         target_words: int = int(params.get("target_words") or 1800)
@@ -91,9 +86,7 @@ class SectionGenerator(BlockGenerator):
             rag_context=rag.text,
         )
         if not outline.get("subsections"):
-            raise GenerationFailure(
-                "SectionArchitect produced no subsections in outline pass."
-            )
+            raise GenerationFailure("SectionArchitect produced no subsections in outline pass.")
 
         # ── Pass 2: fill subsections in parallel ─────────────────────
         relevant_chunks: list[SourceChunk] = []
@@ -124,8 +117,7 @@ class SectionGenerator(BlockGenerator):
                     "role": sub.get("role") or "core",
                     "focus": sub.get("focus") or "",
                     "body": body or "",
-                    "target_words": sub.get("target_words")
-                    or _DEFAULT_SUBSECTION_WORDS,
+                    "target_words": sub.get("target_words") or _DEFAULT_SUBSECTION_WORDS,
                 }
             )
 
@@ -182,9 +174,7 @@ class SectionGenerator(BlockGenerator):
         none_label = _none_label(ctx.language)
         obj_block = "\n".join(f"- {o}" for o in objectives) or none_label
         rag_section = (
-            f"\n[Relevant source evidence]\n{_clip(rag_context, 1800)}\n"
-            if rag_context
-            else ""
+            f"\n[Relevant source evidence]\n{_clip(rag_context, 1800)}\n" if rag_context else ""
         )
         user_prompt = get_book_prompt(prompts, "outline_user").format(
             chapter_title=chapter_title,
@@ -196,19 +186,18 @@ class SectionGenerator(BlockGenerator):
             rag_section=rag_section,
         )
         try:
-            raw = await llm_text(
+            payload = await llm_json(
                 user_prompt=user_prompt,
                 system_prompt=get_book_prompt(prompts, "outline_system"),
                 max_tokens=900,
                 temperature=0.4,
-                response_format={"type": "json_object"},
                 language=ctx.language,
+                expected_key="subsections",
             )
         except Exception as exc:
             logger.warning(f"SectionGenerator outline LLM failed: {exc}")
             return _fallback_outline(focus_topic, objectives, target_words, ctx.language)
 
-        payload = parse_json_response(raw, logger_instance=logger, fallback={})
         if not isinstance(payload, dict):
             return _fallback_outline(focus_topic, objectives, target_words, ctx.language)
 
@@ -270,11 +259,7 @@ class SectionGenerator(BlockGenerator):
         slice_chunks: list[SourceChunk] = []
         for ch in chunks:
             text = (ch.text or "").lower()
-            tokens_match = sum(
-                1
-                for tok in haystack.split()
-                if len(tok) > 3 and tok in text
-            )
+            tokens_match = sum(1 for tok in haystack.split() if len(tok) > 3 and tok in text)
             if tokens_match:
                 slice_chunks.append(ch)
             if len(slice_chunks) >= 3:
@@ -284,16 +269,12 @@ class SectionGenerator(BlockGenerator):
 
         evidence_block = ""
         if slice_chunks:
-            evidence_block = "\n".join(
-                f"- {_clip(c.text or '', 320)}" for c in slice_chunks
-            )
+            evidence_block = "\n".join(f"- {_clip(c.text or '', 320)}" for c in slice_chunks)
 
         prompts = load_book_prompts("section", ctx.language)
         none_label = _none_label(ctx.language)
         same_as_heading = "(同标题)" if ctx.language == "zh" else "(same as heading)"
-        evidence_section = (
-            f"\nReference evidence:\n{evidence_block}\n" if evidence_block else ""
-        )
+        evidence_section = f"\nReference evidence:\n{evidence_block}\n" if evidence_block else ""
         user_prompt = get_book_prompt(prompts, "subsection_user").format(
             chapter_title=chapter_title,
             section_focus=section_focus,
@@ -367,8 +348,3 @@ def _fallback_outline(
 
 
 __all__ = ["SectionGenerator"]
-
-
-# Tiny safety net — keep ``json`` import in use even when only the
-# ``parse_json_response`` path runs (avoids ``F401`` in some lint setups).
-_unused = json  # noqa: F841

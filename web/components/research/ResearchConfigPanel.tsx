@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   DeepResearchFormConfig,
@@ -16,21 +17,29 @@ import {
 interface ResearchConfigPanelProps {
   value: DeepResearchFormConfig;
   errors: Record<string, string>;
-  collapsed: boolean;
+  /**
+   * When provided, the panel is wrapped in a `CollapsibleConfigSection`.
+   * Omit both to render bare for the chat Activity panel.
+   */
+  collapsed?: boolean;
   onChange: (next: DeepResearchFormConfig) => void;
-  onToggleCollapsed: () => void;
+  onToggleCollapsed?: () => void;
 }
 
 // Note: `label` values are i18n keys resolved via `t(...)` at render time so
 // the dropdown options match the active UI language.
-const MODE_OPTIONS: Array<{ value: Exclude<ResearchMode, "">; label: string }> = [
-  { value: "notes", label: "Study Notes" },
-  { value: "report", label: "Report" },
-  { value: "comparison", label: "Comparison" },
-  { value: "learning_path", label: "Learning Path" },
-];
+const MODE_OPTIONS: Array<{ value: Exclude<ResearchMode, "">; label: string }> =
+  [
+    { value: "notes", label: "Study Notes" },
+    { value: "report", label: "Report" },
+    { value: "comparison", label: "Comparison" },
+    { value: "learning_path", label: "Learning Path" },
+  ];
 
-const DEPTH_OPTIONS: Array<{ value: Exclude<ResearchDepth, "">; label: string }> = [
+const DEPTH_OPTIONS: Array<{
+  value: Exclude<ResearchDepth, "">;
+  label: string;
+}> = [
   { value: "quick", label: "Quick" },
   { value: "standard", label: "Standard" },
   { value: "deep", label: "Deep" },
@@ -52,7 +61,9 @@ function NumberSlider({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="shrink-0 text-[10px] text-[var(--muted-foreground)]/60">{label}</span>
+      <span className="shrink-0 text-[10px] text-[var(--muted-foreground)]/60">
+        {label}
+      </span>
       <input
         type="range"
         min={min}
@@ -69,7 +80,7 @@ function NumberSlider({
   );
 }
 
-export default function ResearchConfigPanel({
+export default memo(function ResearchConfigPanel({
   value,
   errors: _errors,
   collapsed,
@@ -83,15 +94,11 @@ export default function ResearchConfigPanel({
   ) => onChange({ ...value, [key]: next });
 
   const rawSummary = summarizeResearchConfig(value, t);
-  const summary = rawSummary === t("Incomplete settings") ? undefined : rawSummary;
+  const summary =
+    rawSummary === t("Incomplete settings") ? undefined : rawSummary;
 
-  return (
-    <CollapsibleConfigSection
-      collapsed={collapsed}
-      summary={summary}
-      onToggleCollapsed={onToggleCollapsed}
-      bodyClassName="space-y-2 px-3.5 pb-2.5"
-    >
+  const body = (
+    <>
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
         <Field label={t("Mode")} width="min-w-[130px] flex-1">
           <select
@@ -140,6 +147,21 @@ export default function ResearchConfigPanel({
           />
         </div>
       )}
+    </>
+  );
+
+  if (collapsed === undefined) {
+    return <div className="space-y-2 px-3.5 py-2.5">{body}</div>;
+  }
+
+  return (
+    <CollapsibleConfigSection
+      collapsed={collapsed}
+      summary={summary}
+      onToggleCollapsed={onToggleCollapsed ?? (() => undefined)}
+      bodyClassName="space-y-2 px-3.5 pb-2.5"
+    >
+      {body}
     </CollapsibleConfigSection>
   );
-}
+});

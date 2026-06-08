@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
-from deeptutor.logging import get_logger
-from deeptutor.services.rag.factory import DEFAULT_PROVIDER
 from deeptutor.services.path_service import get_path_service
+from deeptutor.services.rag.factory import DEFAULT_PROVIDER
+from deeptutor.services.rag.index_versioning import list_kb_versions
 
-logger = get_logger("KBConfigService")
+logger = logging.getLogger(__name__)
 
-DEFAULT_CONFIG_PATH = get_path_service().project_root / "data" / "knowledge_bases" / "kb_config.json"
+# Legacy fallback only — frozen at admin scope at import time. Production code
+# must enter through ``get_kb_config_service()`` (not used directly here, see
+# ``deeptutor/services/config/__init__.py``) which resolves the path lazily.
+DEFAULT_CONFIG_PATH = get_path_service().get_knowledge_bases_root() / "kb_config.json"
 
 
 def _default_payload() -> dict[str, Any]:
@@ -25,7 +29,7 @@ def _default_payload() -> dict[str, Any]:
 
 
 class KnowledgeBaseConfigService:
-    _instance: "KnowledgeBaseConfigService | None" = None
+    _instances: dict[str, "KnowledgeBaseConfigService"] = {}
 
     def __init__(self, config_path: Path | None = None):
         self.config_path = config_path or DEFAULT_CONFIG_PATH
@@ -33,9 +37,13 @@ class KnowledgeBaseConfigService:
 
     @classmethod
     def get_instance(cls, config_path: Path | None = None) -> "KnowledgeBaseConfigService":
-        if cls._instance is None:
-            cls._instance = cls(config_path)
-        return cls._instance
+        resolved = (
+            config_path or get_path_service().get_knowledge_bases_root() / "kb_config.json"
+        ).resolve()
+        key = str(resolved)
+        if key not in cls._instances:
+            cls._instances[key] = cls(resolved)
+        return cls._instances[key]
 
     def _load_config(self) -> dict[str, Any]:
         payload = _default_payload()
@@ -46,7 +54,7 @@ class KnowledgeBaseConfigService:
                 payload.update({k: v for k, v in loaded.items() if k != "defaults"})
                 payload["defaults"].update(loaded.get("defaults", {}))
             except Exception as exc:
-                logger.warning("Failed to load KB config: %s", exc)
+                logger.warning(f"Failed to load KB config: {exc}")
         payload.setdefault("knowledge_bases", {})
         payload.setdefault("defaults", _default_payload()["defaults"])
         payload = self._normalize_payload(payload)
@@ -65,13 +73,18 @@ class KnowledgeBaseConfigService:
             raw_provider = config.get("rag_provider")
             config["rag_provider"] = DEFAULT_PROVIDER
 
-            if isinstance(raw_provider, str) and raw_provider.strip().lower() not in {"", DEFAULT_PROVIDER}:
+            if isinstance(raw_provider, str) and raw_provider.strip().lower() not in {
+                "",
+                DEFAULT_PROVIDER,
+            }:
                 config["needs_reindex"] = True
 
             kb_dir = kb_base_dir / kb_name
             legacy_storage = kb_dir / "rag_storage"
-            new_storage = kb_dir / "llamaindex_storage"
-            if legacy_storage.exists() and legacy_storage.is_dir() and not (new_storage.exists() and new_storage.is_dir()):
+            has_llamaindex_index = any(
+                bool(version.get("ready")) for version in list_kb_versions(kb_dir)
+            )
+            if legacy_storage.exists() and legacy_storage.is_dir() and not has_llamaindex_index:
                 config["needs_reindex"] = True
 
         return payload
@@ -81,6 +94,16 @@ class KnowledgeBaseConfigService:
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.config_path, "w", encoding="utf-8") as handle:
             json.dump(self._config, handle, indent=2, ensure_ascii=False)
+
+    def _refresh(self) -> None:
+        """Re-read kb_config.json so this singleton sees changes made by
+        ``KnowledgeBaseManager`` (orphan pruning, new KB registrations).
+
+        Without this, every mutating call would rewrite the file from the
+        in-memory snapshot taken at process start and undo any external
+        cleanup. Read-modify-write keeps the two writers consistent.
+        """
+        self._config = self._load_config()
 
     def _ensure_kb(self, kb_name: str) -> dict[str, Any]:
         knowledge_bases = self._config.setdefault("knowledge_bases", {})
@@ -92,6 +115,7 @@ class KnowledgeBaseConfigService:
         return knowledge_bases[kb_name]
 
     def get_kb_config(self, kb_name: str) -> dict[str, Any]:
+        self._refresh()
         defaults = dict(self._config.get("defaults", {}))
         kb_config = dict(self._config.get("knowledge_bases", {}).get(kb_name, {}))
         merged = {
@@ -105,6 +129,7 @@ class KnowledgeBaseConfigService:
         return merged
 
     def set_kb_config(self, kb_name: str, config: dict[str, Any]) -> None:
+        self._refresh()
         entry = self._ensure_kb(kb_name)
         entry.update(config)
         self._save()
@@ -122,24 +147,29 @@ class KnowledgeBaseConfigService:
         self.set_kb_config(kb_name, {"search_mode": mode})
 
     def delete_kb_config(self, kb_name: str) -> None:
+        self._refresh()
         knowledge_bases = self._config.get("knowledge_bases", {})
         if kb_name in knowledge_bases:
             del knowledge_bases[kb_name]
             self._save()
 
     def get_all_configs(self) -> dict[str, Any]:
+        self._refresh()
         return self._config
 
     def set_global_defaults(self, defaults: dict[str, Any]) -> None:
+        self._refresh()
         current = self._config.setdefault("defaults", _default_payload()["defaults"])
         current.update(defaults)
         self._save()
 
     def set_default_kb(self, kb_name: str | None) -> None:
+        self._refresh()
         self._config.setdefault("defaults", _default_payload()["defaults"])["default_kb"] = kb_name
         self._save()
 
     def get_default_kb(self) -> str | None:
+        self._refresh()
         return self._config.get("defaults", {}).get("default_kb")
 
     def sync_from_metadata(self, kb_name: str, kb_base_dir: Path) -> None:
@@ -150,7 +180,7 @@ class KnowledgeBaseConfigService:
             with open(metadata_file, "r", encoding="utf-8") as handle:
                 metadata = json.load(handle)
         except Exception as exc:
-            logger.warning("Failed to load KB metadata for %s: %s", kb_name, exc)
+            logger.warning(f"Failed to load KB metadata for {kb_name}: {exc}")
             return
         config: dict[str, Any] = {}
         if metadata.get("rag_provider"):
@@ -172,7 +202,9 @@ class KnowledgeBaseConfigService:
 
 
 def get_kb_config_service() -> KnowledgeBaseConfigService:
-    return KnowledgeBaseConfigService.get_instance()
+    return KnowledgeBaseConfigService.get_instance(
+        get_path_service().get_knowledge_bases_root() / "kb_config.json"
+    )
 
 
 __all__ = ["KnowledgeBaseConfigService", "get_kb_config_service"]

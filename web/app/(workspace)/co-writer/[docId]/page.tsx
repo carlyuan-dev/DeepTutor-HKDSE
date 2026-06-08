@@ -31,6 +31,7 @@ import {
   ListTodo,
   Loader2,
   Minus,
+  NotebookPen,
   Quote,
   Redo2,
   Strikethrough,
@@ -40,22 +41,29 @@ import {
   Workflow,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import { apiUrl } from "@/lib/api";
+import { apiFetch, apiUrl } from "@/lib/api";
 import { listKnowledgeBases } from "@/lib/knowledge-api";
 import {
   getCoWriterDocument,
   updateCoWriterDocument,
 } from "@/lib/co-writer-api";
 import { notifyCoWriterChanged } from "@/lib/co-writer-events";
+import SaveToNotebookModal, {
+  type NotebookSavePayload,
+} from "@/components/notebook/SaveToNotebookModal";
 import { CO_WRITER_SAMPLE_TEMPLATE } from "../sampleTemplate";
 
-const MarkdownRenderer = dynamic(() => import("@/components/common/MarkdownRenderer"), {
-  ssr: false,
-});
+const MarkdownRenderer = dynamic(
+  () => import("@/components/common/MarkdownRenderer"),
+  {
+    ssr: false,
+  },
+);
 
 type EditAction = "rewrite" | "shorten" | "expand";
 type SelectionMode = EditAction | "none";
 type SourceOption = "none" | "rag" | "web";
+type ConfirmAction = "clear" | "template";
 type ToolName =
   | "brainstorm"
   | "rag"
@@ -154,7 +162,7 @@ export default function CoWriterPage() {
   const docId = useMemo(() => {
     const raw = params?.docId;
     if (!raw) return "";
-    return Array.isArray(raw) ? raw[0] ?? "" : raw;
+    return Array.isArray(raw) ? (raw[0] ?? "") : raw;
   }, [params]);
   const draftStorageKey = useMemo(
     () => (docId ? `${LOCAL_DRAFT_PREFIX}${docId}` : null),
@@ -175,13 +183,16 @@ export default function CoWriterPage() {
   const previewScrollRef = useRef<HTMLDivElement>(null);
   const splitContainerRef = useRef<HTMLDivElement>(null);
   const scrollSyncSourceRef = useRef<"editor" | "preview" | null>(null);
-  const scrollSyncResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollSyncResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const selectionPopoverRef = useRef<HTMLDivElement>(null);
   const preserveSelectionTraceRef = useRef(false);
   const selectionRequestAbortRef = useRef<AbortController | null>(null);
-  const selectionDragStateRef = useRef<{ offsetX: number; offsetY: number } | null>(
-    null,
-  );
+  const selectionDragStateRef = useRef<{
+    offsetX: number;
+    offsetY: number;
+  } | null>(null);
   const [markdown, setMarkdown] = useState("");
   const [instruction, setInstruction] = useState("");
   const [action, setAction] = useState<EditAction>("rewrite");
@@ -193,20 +204,26 @@ export default function CoWriterPage() {
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [selectedRange, setSelectedRange] = useState<SelectedRange | null>(null);
-  const [selectionPopover, setSelectionPopover] = useState<SelectionPopoverState>({
-    visible: false,
-    top: 0,
-    left: 0,
-  });
+  const [pendingConfirmAction, setPendingConfirmAction] =
+    useState<ConfirmAction | null>(null);
+  const [notebookSavePayload, setNotebookSavePayload] =
+    useState<NotebookSavePayload | null>(null);
+  const [selectedRange, setSelectedRange] = useState<SelectedRange | null>(
+    null,
+  );
+  const [selectionPopover, setSelectionPopover] =
+    useState<SelectionPopoverState>({
+      visible: false,
+      top: 0,
+      left: 0,
+    });
   const [selectionInstruction, setSelectionInstruction] = useState("");
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("rewrite");
   const [selectionTools, setSelectionTools] = useState<ToolName[]>([]);
   const [isToolMenuOpen, setIsToolMenuOpen] = useState(false);
   const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
-  const [selectionTrace, setSelectionTrace] = useState<SelectionTraceData | null>(
-    null,
-  );
+  const [selectionTrace, setSelectionTrace] =
+    useState<SelectionTraceData | null>(null);
   const [isTraceExpanded, setIsTraceExpanded] = useState(true);
   const [selectionPopoverPinned, setSelectionPopoverPinned] = useState(false);
   const [isDraggingSelectionPopover, setIsDraggingSelectionPopover] =
@@ -223,6 +240,7 @@ export default function CoWriterPage() {
   const [undoStack, setUndoStack] = useState<string[]>([]);
   const [redoStack, setRedoStack] = useState<string[]>([]);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingUndoSnapshotRef = useRef<string | null>(null);
   const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
 
   useEffect(() => {
@@ -276,7 +294,9 @@ export default function CoWriterPage() {
         setMarkdown(content);
         setDocTitle(document.title || "");
         lastSavedContentRef.current = document.content ?? "";
-        setLastSavedAt(document.updated_at ? document.updated_at * 1000 : Date.now());
+        setLastSavedAt(
+          document.updated_at ? document.updated_at * 1000 : Date.now(),
+        );
         setHasLoadedDraft(true);
       } catch (err) {
         if (cancelled) return;
@@ -316,11 +336,15 @@ export default function CoWriterPage() {
     autosaveTimerRef.current = setTimeout(async () => {
       try {
         setIsSavingDoc(true);
-        const updated = await updateCoWriterDocument(docId, { content: markdown });
+        const updated = await updateCoWriterDocument(docId, {
+          content: markdown,
+        });
         if (isUnmountedRef.current) return;
         lastSavedContentRef.current = markdown;
         setDocTitle(updated.title || "");
-        setLastSavedAt(updated.updated_at ? updated.updated_at * 1000 : Date.now());
+        setLastSavedAt(
+          updated.updated_at ? updated.updated_at * 1000 : Date.now(),
+        );
         if (draftStorageKey) {
           try {
             window.localStorage.removeItem(draftStorageKey);
@@ -388,25 +412,55 @@ export default function CoWriterPage() {
     })();
   }, []);
 
-  const pushUndo = useCallback(
-    (prev: string) => {
-      setUndoStack((s) => [...s.slice(-50), prev]);
-      setRedoStack([]);
-    },
-    [],
-  );
+  const pushUndo = useCallback((prev: string) => {
+    setUndoStack((s) => [...s.slice(-50), prev]);
+    setRedoStack([]);
+  }, []);
+
+  const commitPendingTypingUndo = useCallback(() => {
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+    const snapshot = pendingUndoSnapshotRef.current;
+    pendingUndoSnapshotRef.current = null;
+    if (snapshot !== null && snapshot !== markdown) {
+      pushUndo(snapshot);
+    }
+  }, [markdown, pushUndo]);
 
   const handleMarkdownChange = useCallback(
     (value: string) => {
       if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-      const prev = markdown;
-      undoTimerRef.current = setTimeout(() => pushUndo(prev), 400);
+      if (pendingUndoSnapshotRef.current === null) {
+        pendingUndoSnapshotRef.current = markdown;
+      }
+      const snapshot = pendingUndoSnapshotRef.current;
+      undoTimerRef.current = setTimeout(() => {
+        pendingUndoSnapshotRef.current = null;
+        undoTimerRef.current = null;
+        if (snapshot !== null && snapshot !== value) {
+          pushUndo(snapshot);
+        }
+      }, 400);
       setMarkdown(value);
     },
     [markdown, pushUndo],
   );
 
   const handleUndo = useCallback(() => {
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+    const pendingSnapshot = pendingUndoSnapshotRef.current;
+    pendingUndoSnapshotRef.current = null;
+    if (pendingSnapshot !== null && pendingSnapshot !== markdown) {
+      setRedoStack((s) => [...s, markdown]);
+      setMarkdown(pendingSnapshot);
+      return;
+    }
+
     if (undoStack.length === 0) return;
     const prev = undoStack[undoStack.length - 1];
     setRedoStack((s) => [...s, markdown]);
@@ -421,6 +475,32 @@ export default function CoWriterPage() {
     setRedoStack((s) => s.slice(0, -1));
     setMarkdown(next);
   }, [redoStack, markdown]);
+
+  const handleEditorKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      const key = event.key.toLowerCase();
+      const hasUndoModifier = event.metaKey || event.ctrlKey;
+      if (!hasUndoModifier || event.altKey) return;
+
+      if (key === "z" && event.shiftKey) {
+        event.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      if (key === "z") {
+        event.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      if (key === "y") {
+        event.preventDefault();
+        handleRedo();
+      }
+    },
+    [handleRedo, handleUndo],
+  );
 
   const startEditingTitle = useCallback(() => {
     if (isLoadingDoc) return;
@@ -614,6 +694,7 @@ export default function CoWriterPage() {
 
   const insertSnippet = useCallback(
     (snippet: string) => {
+      commitPendingTypingUndo();
       pushUndo(markdown);
       const textarea = textareaRef.current;
       if (!textarea) {
@@ -630,15 +711,21 @@ export default function CoWriterPage() {
         textarea.setSelectionRange(cursor, cursor);
       });
     },
-    [markdown, pushUndo],
+    [commitPendingTypingUndo, markdown, pushUndo],
   );
 
-  const clearDocument = () => {
+  const clearDocument = useCallback(() => {
+    if (!markdown) {
+      setStatus(t("Draft is already empty."));
+      setError("");
+      return;
+    }
+    commitPendingTypingUndo();
     pushUndo(markdown);
     setMarkdown("");
-    setStatus("");
+    setStatus(t("Draft cleared. Press Ctrl/Cmd+Z or use Undo to restore it."));
     setError("");
-  };
+  }, [commitPendingTypingUndo, markdown, pushUndo, t]);
 
   const loadExampleTemplate = useCallback(() => {
     if (markdown === CO_WRITER_SAMPLE_TEMPLATE) {
@@ -647,11 +734,58 @@ export default function CoWriterPage() {
       return;
     }
 
+    commitPendingTypingUndo();
     pushUndo(markdown);
     setMarkdown(CO_WRITER_SAMPLE_TEMPLATE);
-    setStatus(t("Loaded example template."));
+    setStatus(
+      t("Loaded example template. Press Ctrl/Cmd+Z or use Undo to restore it."),
+    );
     setError("");
-  }, [markdown, pushUndo]);
+  }, [commitPendingTypingUndo, markdown, pushUndo, t]);
+
+  const requestClearDocument = useCallback(() => {
+    if (!markdown) {
+      clearDocument();
+      return;
+    }
+    setPendingConfirmAction("clear");
+  }, [clearDocument, markdown]);
+
+  const requestLoadExampleTemplate = useCallback(() => {
+    if (markdown === CO_WRITER_SAMPLE_TEMPLATE) {
+      loadExampleTemplate();
+      return;
+    }
+    setPendingConfirmAction("template");
+  }, [loadExampleTemplate, markdown]);
+
+  const confirmActionCopy = useMemo(() => {
+    if (pendingConfirmAction === "clear") {
+      return {
+        title: t("Clear this draft?"),
+        description: t(
+          "This will empty the editor. The previous content is kept in Undo until you leave this draft.",
+        ),
+        confirmLabel: t("Clear draft"),
+        tone: "danger" as const,
+        onConfirm: clearDocument,
+      };
+    }
+
+    if (pendingConfirmAction === "template") {
+      return {
+        title: t("Replace with the example template?"),
+        description: t(
+          "This will replace the current editor content. The previous content is kept in Undo until you leave this draft.",
+        ),
+        confirmLabel: t("Load template"),
+        tone: "warning" as const,
+        onConfirm: loadExampleTemplate,
+      };
+    }
+
+    return null;
+  }, [clearDocument, loadExampleTemplate, pendingConfirmAction, t]);
 
   const handleDownload = () => {
     const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
@@ -662,6 +796,26 @@ export default function CoWriterPage() {
     anchor.click();
     URL.revokeObjectURL(url);
   };
+
+  const handleOpenSaveToNotebook = useCallback(() => {
+    if (!markdown.trim()) {
+      setError(t("Add some content before saving to a notebook."));
+      return;
+    }
+    const fallbackTitle = t("Untitled Co-Writer Document");
+    const titleForRecord = (docTitle || fallbackTitle).trim() || fallbackTitle;
+    setNotebookSavePayload({
+      recordType: "co_writer",
+      title: titleForRecord,
+      userQuery: titleForRecord,
+      output: markdown,
+      metadata: {
+        source: "co_writer",
+        doc_id: docId,
+      },
+      kbName: kbName || null,
+    });
+  }, [docId, docTitle, kbName, markdown, t]);
 
   const replaceSelectedText = useCallback(
     (range: SelectedRange, replacement: string) => {
@@ -680,7 +834,10 @@ export default function CoWriterPage() {
         const textarea = textareaRef.current;
         if (!textarea) return;
         textarea.focus();
-        textarea.setSelectionRange(range.start, range.start + replacement.length);
+        textarea.setSelectionRange(
+          range.start,
+          range.start + replacement.length,
+        );
         updateSelectionPopover();
       });
     },
@@ -689,7 +846,9 @@ export default function CoWriterPage() {
 
   const toggleSelectionTool = useCallback((tool: ToolName) => {
     setSelectionTools((prev) =>
-      prev.includes(tool) ? prev.filter((item) => item !== tool) : [...prev, tool],
+      prev.includes(tool)
+        ? prev.filter((item) => item !== tool)
+        : [...prev, tool],
     );
   }, []);
 
@@ -716,78 +875,89 @@ export default function CoWriterPage() {
     [selectionPopover.left, selectionPopover.top],
   );
 
-  const updateSelectionTraceFromEvent = useCallback((event: StreamTraceEvent) => {
-    setSelectionTrace((prev) => {
-      const current = prev ?? { thinking: "", toolTraces: [], response: "" };
-      if (event.type === "thinking") {
-        return { ...current, thinking: `${current.thinking}${event.content || ""}` };
-      }
-      if (event.type === "tool_call") {
-        return {
-          ...current,
-          toolTraces: [
-            ...current.toolTraces,
-            {
-              kind: "tool_call",
-              name: String(event.content || ""),
-              arguments:
-                event.metadata && typeof event.metadata.args === "object"
-                  ? (event.metadata.args as Record<string, unknown>)
-                  : {},
-              result: "",
-              success: true,
-              sources: [],
-              metadata: event.metadata || {},
-            },
-          ],
-        };
-      }
-      if (event.type === "tool_result") {
-        return {
-          ...current,
-          toolTraces: [
-            ...current.toolTraces,
-            {
-              kind: "tool_result",
-              name: String(event.metadata?.tool || "result"),
-              arguments: {},
-              result: String(event.content || ""),
-              success: true,
-              sources: [],
-              metadata: event.metadata || {},
-            },
-          ],
-        };
-      }
-      if (event.type === "content" && event.stage === "responding") {
-        return { ...current, response: `${current.response}${event.content || ""}` };
-      }
-      return current;
-    });
-  }, []);
+  const updateSelectionTraceFromEvent = useCallback(
+    (event: StreamTraceEvent) => {
+      setSelectionTrace((prev) => {
+        const current = prev ?? { thinking: "", toolTraces: [], response: "" };
+        if (event.type === "thinking") {
+          return {
+            ...current,
+            thinking: `${current.thinking}${event.content || ""}`,
+          };
+        }
+        if (event.type === "tool_call") {
+          return {
+            ...current,
+            toolTraces: [
+              ...current.toolTraces,
+              {
+                kind: "tool_call",
+                name: String(event.content || ""),
+                arguments:
+                  event.metadata && typeof event.metadata.args === "object"
+                    ? (event.metadata.args as Record<string, unknown>)
+                    : {},
+                result: "",
+                success: true,
+                sources: [],
+                metadata: event.metadata || {},
+              },
+            ],
+          };
+        }
+        if (event.type === "tool_result") {
+          return {
+            ...current,
+            toolTraces: [
+              ...current.toolTraces,
+              {
+                kind: "tool_result",
+                name: String(event.metadata?.tool || "result"),
+                arguments: {},
+                result: String(event.content || ""),
+                success: true,
+                sources: [],
+                metadata: event.metadata || {},
+              },
+            ],
+          };
+        }
+        if (event.type === "content" && event.stage === "responding") {
+          return {
+            ...current,
+            response: `${current.response}${event.content || ""}`,
+          };
+        }
+        return current;
+      });
+    },
+    [],
+  );
 
   const applyReactSelectionEdit = useCallback(async () => {
-      if (!selectedRange) {
-        setError(t("Please select a text passage first."));
-        return;
-      }
+    if (!selectedRange) {
+      setError(t("Please select a text passage first."));
+      return;
+    }
 
-      if (selectionMode === "none" && !selectionInstruction.trim()) {
-        setError(t("Please enter an instruction or choose a mode."));
-        return;
-      }
+    if (selectionMode === "none" && !selectionInstruction.trim()) {
+      setError(t("Please enter an instruction or choose a mode."));
+      return;
+    }
 
-      setIsEditing(true);
-      setError("");
-      setStatus("");
-      setSelectionTrace({ thinking: "", toolTraces: [], response: "" });
-      setIsTraceExpanded(true);
-      selectionRequestAbortRef.current?.abort();
-      const controller = new AbortController();
-      selectionRequestAbortRef.current = controller;
+    setIsEditing(true);
+    setError("");
+    setStatus("");
+    setSelectionTrace({ thinking: "", toolTraces: [], response: "" });
+    setIsTraceExpanded(true);
+    selectionRequestAbortRef.current?.abort();
+    const controller = new AbortController();
+    selectionRequestAbortRef.current = controller;
 
-      try {
-        const response = await fetch(apiUrl("/api/v1/co_writer/edit_react/stream"), {
+    try {
+      const response = await apiFetch(
+        apiUrl("/api/v1/co_writer/edit_react/stream"),
+        {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: controller.signal,
@@ -798,86 +968,93 @@ export default function CoWriterPage() {
             tools: selectionTools,
             kb_name: selectionTools.includes("rag") ? kbName || null : null,
           }),
-        });
-        if (!response.ok) {
-          throw new Error((await response.text()) || "Failed to edit selected text.");
-        }
-        if (!response.body) {
-          throw new Error("Streaming response body is missing.");
-        }
+        },
+      );
+      if (!response.ok) {
+        throw new Error(
+          (await response.text()) || t("Failed to edit selected text."),
+        );
+      }
+      if (!response.body) {
+        throw new Error(t("Streaming response body is missing."));
+      }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let finalResult: StreamEditResult | undefined;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalResult: StreamEditResult | undefined;
 
-        const processSseChunk = (chunk: string) => {
-          const lines = chunk.split(/\r?\n/);
-          let eventName = "message";
-          const dataLines: string[] = [];
-          for (const line of lines) {
-            if (line.startsWith("event:")) {
-              eventName = line.slice(6).trim();
-            } else if (line.startsWith("data:")) {
-              dataLines.push(line.slice(5).trimStart());
-            }
-          }
-          if (dataLines.length === 0) return;
-          const payload = JSON.parse(dataLines.join("\n"));
-          if (eventName === "stream") {
-            updateSelectionTraceFromEvent(payload as StreamTraceEvent);
-            return;
-          }
-          if (eventName === "result") {
-            finalResult = payload as StreamEditResult;
-            return;
-          }
-          if (eventName === "error") {
-            throw new Error(String(payload?.detail || "Failed to edit selected text."));
-          }
-        };
-
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          while (true) {
-            const delimiterIndex = buffer.indexOf("\n\n");
-            if (delimiterIndex === -1) break;
-            const rawEvent = buffer.slice(0, delimiterIndex);
-            buffer = buffer.slice(delimiterIndex + 2);
-            processSseChunk(rawEvent);
+      const processSseChunk = (chunk: string) => {
+        const lines = chunk.split(/\r?\n/);
+        let eventName = "message";
+        const dataLines: string[] = [];
+        for (const line of lines) {
+          if (line.startsWith("event:")) {
+            eventName = line.slice(6).trim();
+          } else if (line.startsWith("data:")) {
+            dataLines.push(line.slice(5).trimStart());
           }
         }
-        buffer += decoder.decode();
-        if (buffer.trim()) {
-          processSseChunk(buffer.trim());
-        }
-        if (finalResult === undefined) {
-          throw new Error("Did not receive a final edit result.");
-        }
-        const editedText = finalResult.edited_text ?? "";
-
-        if (markdown !== selectedRange.snapshot) {
-          throw new Error(
-            "The draft changed before AI edit finished. Please reselect the text and try again.",
-          );
-        }
-
-        replaceSelectedText(selectedRange, editedText);
-        setStatus(t("Applied AI edit to the selection."));
-      } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") {
+        if (dataLines.length === 0) return;
+        const payload = JSON.parse(dataLines.join("\n"));
+        if (eventName === "stream") {
+          updateSelectionTraceFromEvent(payload as StreamTraceEvent);
           return;
         }
-        setError(
-          err instanceof Error ? err.message : "Failed to edit selected text.",
-        );
-      } finally {
-        selectionRequestAbortRef.current = null;
-        setIsEditing(false);
+        if (eventName === "result") {
+          finalResult = payload as StreamEditResult;
+          return;
+        }
+        if (eventName === "error") {
+          throw new Error(
+            String(payload?.detail || t("Failed to edit selected text.")),
+          );
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        while (true) {
+          const delimiterIndex = buffer.indexOf("\n\n");
+          if (delimiterIndex === -1) break;
+          const rawEvent = buffer.slice(0, delimiterIndex);
+          buffer = buffer.slice(delimiterIndex + 2);
+          processSseChunk(rawEvent);
+        }
       }
-    }, [
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        processSseChunk(buffer.trim());
+      }
+      if (finalResult === undefined) {
+        throw new Error(t("Did not receive a final edit result."));
+      }
+      const editedText = finalResult.edited_text ?? "";
+
+      if (markdown !== selectedRange.snapshot) {
+        throw new Error(
+          t(
+            "The draft changed before AI edit finished. Please reselect the text and try again.",
+          ),
+        );
+      }
+
+      replaceSelectedText(selectedRange, editedText);
+      setStatus(t("Applied AI edit to the selection."));
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
+      setError(
+        err instanceof Error ? err.message : t("Failed to edit selected text."),
+      );
+    } finally {
+      selectionRequestAbortRef.current = null;
+      setIsEditing(false);
+    }
+  }, [
     kbName,
     markdown,
     replaceSelectedText,
@@ -885,6 +1062,7 @@ export default function CoWriterPage() {
     selectionInstruction,
     selectionMode,
     selectionTools,
+    t,
     updateSelectionTraceFromEvent,
   ]);
 
@@ -897,7 +1075,7 @@ export default function CoWriterPage() {
     setError("");
     setStatus("");
     try {
-      const response = await fetch(apiUrl("/api/v1/co_writer/edit"), {
+      const response = await apiFetch(apiUrl("/api/v1/co_writer/edit"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -910,13 +1088,19 @@ export default function CoWriterPage() {
       });
       const data = await response.json();
       if (!response.ok)
-        throw new Error(data?.detail || "Failed to edit document.");
+        throw new Error(data?.detail || t("Failed to edit document."));
       pushUndo(markdown);
       setMarkdown(data.edited_text || "");
-      setStatus(t("Applied {{action}} to the full draft.", { action: t(ACTION_LABELS[action]).toLowerCase() }));
+      setStatus(
+        t("Applied {{action}} to the full draft.", {
+          action: t(ACTION_LABELS[action]).toLowerCase(),
+        }),
+      );
       setIsEditModalOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to edit document.");
+      setError(
+        err instanceof Error ? err.message : t("Failed to edit document."),
+      );
     } finally {
       setIsEditing(false);
     }
@@ -927,20 +1111,20 @@ export default function CoWriterPage() {
     setError("");
     setStatus("");
     try {
-      const response = await fetch(apiUrl("/api/v1/co_writer/automark"), {
+      const response = await apiFetch(apiUrl("/api/v1/co_writer/automark"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: markdown }),
       });
       const data = await response.json();
       if (!response.ok)
-        throw new Error(data?.detail || "Failed to auto-mark document.");
+        throw new Error(data?.detail || t("Failed to auto-mark document."));
       pushUndo(markdown);
       setMarkdown(data.marked_text || "");
       setStatus(t("Applied auto-mark annotations."));
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to auto-mark document.",
+        err instanceof Error ? err.message : t("Failed to auto-mark document."),
       );
     } finally {
       setIsAutoMarking(false);
@@ -1020,8 +1204,7 @@ export default function CoWriterPage() {
         id: "mermaid",
         icon: Workflow,
         title: "Mermaid Diagram",
-        snippet:
-          "\n```mermaid\nflowchart TD\n  A[Start] --> B[End]\n```\n",
+        snippet: "\n```mermaid\nflowchart TD\n  A[Start] --> B[End]\n```\n",
       },
       {
         id: "math",
@@ -1222,8 +1405,7 @@ export default function CoWriterPage() {
       if (i > 0) mirror.appendChild(document.createTextNode("\n"));
       const span = document.createElement("span");
       // Empty lines need measurable content for offsetTop to be meaningful.
-      span.textContent =
-        sourceLines[i].length > 0 ? sourceLines[i] : "\u200B";
+      span.textContent = sourceLines[i].length > 0 ? sourceLines[i] : "\u200B";
       mirror.appendChild(span);
       spans.push(span);
     }
@@ -1299,19 +1481,23 @@ export default function CoWriterPage() {
 
     // Anchor the very top so we don't snap to the first heading when the user
     // is still above it.
-    if (markers.length === 0 || markers[0].editorY > 0 || markers[0].previewY > 0) {
+    if (
+      markers.length === 0 ||
+      markers[0].editorY > 0 ||
+      markers[0].previewY > 0
+    ) {
       markers.unshift({ line: 0, editorY: 0, previewY: 0 });
     }
 
     // Anchor the bottom so the bottom of the document matches.
     if (editor && preview) {
       const editorMax = Math.max(0, editor.scrollHeight - editor.clientHeight);
-      const previewMax = Math.max(0, preview.scrollHeight - preview.clientHeight);
+      const previewMax = Math.max(
+        0,
+        preview.scrollHeight - preview.clientHeight,
+      );
       const last = markers[markers.length - 1];
-      if (
-        editorMax > last.editorY + 1 ||
-        previewMax > last.previewY + 1
-      ) {
+      if (editorMax > last.editorY + 1 || previewMax > last.previewY + 1) {
         markers.push({
           line: last.line + 1,
           editorY: editorMax,
@@ -1470,9 +1656,7 @@ export default function CoWriterPage() {
           {t("Document not found")}
         </p>
         <p className="text-sm text-[var(--muted-foreground)]">
-          {t(
-            "This document may have been deleted, or the link is incorrect.",
-          )}
+          {t("This document may have been deleted, or the link is incorrect.")}
         </p>
         <button
           type="button"
@@ -1567,19 +1751,24 @@ export default function CoWriterPage() {
         <div className="flex items-center gap-2">
           <ToolbarIconBtn
             title={t("Clear")}
-            onClick={clearDocument}
+            onClick={requestClearDocument}
+            tone="danger"
           >
             <Eraser size={17} strokeWidth={1.7} />
           </ToolbarIconBtn>
-          <ToolbarIconBtn
-            title={t("Export Markdown")}
-            onClick={handleDownload}
-          >
+          <ToolbarIconBtn title={t("Export Markdown")} onClick={handleDownload}>
             <Download size={17} strokeWidth={1.7} />
           </ToolbarIconBtn>
           <ToolbarIconBtn
+            title={t("Save to Notebook")}
+            onClick={handleOpenSaveToNotebook}
+          >
+            <NotebookPen size={17} strokeWidth={1.7} />
+          </ToolbarIconBtn>
+          <ToolbarIconBtn
             title={t("Load Example Template")}
-            onClick={loadExampleTemplate}
+            onClick={requestLoadExampleTemplate}
+            tone="warning"
           >
             <FileText size={17} strokeWidth={1.7} />
           </ToolbarIconBtn>
@@ -1648,16 +1837,19 @@ export default function CoWriterPage() {
             <span
               aria-hidden="true"
               className={`inline-block h-1.5 w-1.5 rounded-full ${
-                syncScrollEnabled ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/60"
+                syncScrollEnabled
+                  ? "bg-[var(--primary)]"
+                  : "bg-[var(--muted-foreground)]/60"
               }`}
             />
             {t("Sync Scroll")}
           </button>
-          <span className="mx-0.5 h-3 w-px bg-[var(--border)]" aria-hidden="true" />
+          <span
+            className="mx-0.5 h-3 w-px bg-[var(--border)]"
+            aria-hidden="true"
+          />
           <span className="rounded bg-[var(--muted)] px-1.5 py-0.5">GFM</span>
-          <span className="rounded bg-[var(--muted)] px-1.5 py-0.5">
-            KaTeX
-          </span>
+          <span className="rounded bg-[var(--muted)] px-1.5 py-0.5">KaTeX</span>
           <span className="rounded bg-[var(--muted)] px-1.5 py-0.5">
             Mermaid
           </span>
@@ -1696,6 +1888,7 @@ export default function CoWriterPage() {
               value={markdown}
               onChange={(e) => handleMarkdownChange(e.target.value)}
               onSelect={updateSelectionPopover}
+              onKeyDown={handleEditorKeyDown}
               onKeyUp={updateSelectionPopover}
               onMouseUp={updateSelectionPopover}
               onScroll={handleEditorScrollSync}
@@ -1846,8 +2039,11 @@ export default function CoWriterPage() {
                   {selectionTools.length === 0
                     ? t("Tools")
                     : selectionTools.length === 1
-                      ? t(TOOL_OPTIONS.find((item) => item.name === selectionTools[0])
-                          ?.label || "Tools")
+                      ? t(
+                          TOOL_OPTIONS.find(
+                            (item) => item.name === selectionTools[0],
+                          )?.label || "Tools",
+                        )
                       : t("{{count}} tools", { count: selectionTools.length })}
                 </span>
                 <ChevronDown
@@ -1866,7 +2062,11 @@ export default function CoWriterPage() {
                         className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-[12px] text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]"
                       >
                         <span>{t(tool.label)}</span>
-                        {active ? <Check size={12} /> : <span className="w-3" />}
+                        {active ? (
+                          <Check size={12} />
+                        ) : (
+                          <span className="w-3" />
+                        )}
                       </button>
                     );
                   })}
@@ -1883,8 +2083,10 @@ export default function CoWriterPage() {
                 className="flex h-9 w-full items-center justify-between rounded-xl border border-[var(--border)] px-3 text-[12px] text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]"
               >
                 <span>
-                  {t(MODE_OPTIONS.find((item) => item.value === selectionMode)?.label ||
-                    "Mode")}
+                  {t(
+                    MODE_OPTIONS.find((item) => item.value === selectionMode)
+                      ?.label || "Mode",
+                  )}
                 </span>
                 <ChevronDown
                   size={13}
@@ -1959,7 +2161,10 @@ export default function CoWriterPage() {
                       </div>
                       <div className="space-y-2">
                         {selectionTrace.toolTraces.map((trace, index) => (
-                          <div key={`${trace.name}-${index}`} className="space-y-1">
+                          <div
+                            key={`${trace.name}-${index}`}
+                            className="space-y-1"
+                          >
                             <div>
                               <span className="opacity-50">
                                 {trace.kind === "tool_result" ? "✓ " : "→ "}
@@ -2032,7 +2237,7 @@ export default function CoWriterPage() {
       {/* ── AI Edit modal ── */}
       {isEditModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] backdrop-blur-sm"
           onClick={(e) => {
             if (e.target === e.currentTarget) setIsEditModalOpen(false);
           }}
@@ -2082,9 +2287,7 @@ export default function CoWriterPage() {
                   </label>
                   <select
                     value={source}
-                    onChange={(e) =>
-                      setSource(e.target.value as SourceOption)
-                    }
+                    onChange={(e) => setSource(e.target.value as SourceOption)}
                     className="w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
                   >
                     <option value="none">{t("None")}</option>
@@ -2143,6 +2346,80 @@ export default function CoWriterPage() {
         </div>
       )}
 
+      {confirmActionCopy && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] px-4 backdrop-blur-sm"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setPendingConfirmAction(null);
+          }}
+        >
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="co-writer-confirm-title"
+            aria-describedby="co-writer-confirm-description"
+            className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
+          >
+            <div className="border-b border-[var(--border)] px-4 py-3">
+              <h2
+                id="co-writer-confirm-title"
+                className="text-sm font-semibold text-[var(--foreground)]"
+              >
+                {confirmActionCopy.title}
+              </h2>
+              <p
+                id="co-writer-confirm-description"
+                className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]"
+              >
+                {confirmActionCopy.description}
+              </p>
+            </div>
+
+            <div className="px-4 py-3">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                {t(
+                  "Undo is available with Ctrl/Cmd+Z or the toolbar Undo button.",
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setPendingConfirmAction(null)}
+                className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]"
+              >
+                {t("Cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const onConfirm = confirmActionCopy.onConfirm;
+                  setPendingConfirmAction(null);
+                  onConfirm();
+                }}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 ${
+                  confirmActionCopy.tone === "danger"
+                    ? "bg-red-600"
+                    : "bg-amber-600"
+                }`}
+              >
+                {confirmActionCopy.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <SaveToNotebookModal
+        open={notebookSavePayload !== null}
+        payload={notebookSavePayload}
+        onClose={() => setNotebookSavePayload(null)}
+        onSaved={() => {
+          setStatus(t("Saved to notebook."));
+          setError("");
+        }}
+      />
     </div>
   );
 }
@@ -2151,18 +2428,34 @@ function ToolbarIconBtn({
   title,
   onClick,
   children,
+  tone = "default",
 }: {
   title: string;
   onClick: () => void;
   children: React.ReactNode;
+  tone?: "default" | "danger" | "warning";
 }) {
+  const toneClass =
+    tone === "danger"
+      ? "hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400"
+      : tone === "warning"
+        ? "hover:bg-amber-500/10 hover:text-amber-700 dark:hover:text-amber-300"
+        : "hover:bg-[var(--muted)] hover:text-[var(--foreground)]";
+
   return (
     <button
-      title={title}
+      type="button"
+      aria-label={title}
       onClick={onClick}
-      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+      className={`group relative inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/35 ${toneClass}`}
     >
       {children}
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-[10px] font-medium text-[var(--foreground)] opacity-0 shadow-lg transition-opacity delay-[120ms] duration-100 group-hover:opacity-100 group-focus-visible:opacity-100 group-focus-visible:delay-0"
+      >
+        {title}
+      </span>
     </button>
   );
 }

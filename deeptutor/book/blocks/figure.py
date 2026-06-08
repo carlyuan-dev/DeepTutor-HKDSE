@@ -8,14 +8,13 @@ chapter, but never falls back to interactive HTML (handled by the
 
 from __future__ import annotations
 
+import logging
 from typing import Any
-
-from deeptutor.logging import get_logger
 
 from ..models import BlockType, SourceAnchor
 from .base import BlockContext, BlockGenerator, GenerationFailure
 
-logger = get_logger("book.blocks.figure")
+logger = logging.getLogger(__name__)
 
 
 class FigureGenerator(BlockGenerator):
@@ -43,7 +42,7 @@ class FigureGenerator(BlockGenerator):
         focus_clause = f" focusing on {focus}" if focus else ""
         user_input = (
             f"Create a {variant} figure for the chapter "
-            f"\"{chapter_title}\"{focus_clause}. The figure should help a "
+            f'"{chapter_title}"{focus_clause}. The figure should help a '
             "learner build intuition about the core relationships covered above."
         )
 

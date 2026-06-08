@@ -6,7 +6,9 @@ Verifies that records can only be saved using real notebook UUIDs
 
 from __future__ import annotations
 
+import asyncio
 import importlib
+import json
 
 import pytest
 
@@ -30,7 +32,8 @@ def _build_app(manager: NotebookManager) -> FastAPI:
 def manager(tmp_path, monkeypatch) -> NotebookManager:
     instance = NotebookManager(base_dir=str(tmp_path / "notebooks"))
     monkeypatch.setattr(
-        "deeptutor.api.routers.notebook.notebook_manager", instance,
+        "deeptutor.api.routers.notebook.notebook_manager",
+        instance,
     )
     return instance
 
@@ -111,3 +114,48 @@ def test_add_record_with_numeric_category_id_saves_nothing(manager: NotebookMana
         assert resp.status_code == 200
         body = resp.json()
         assert body["added_to_notebooks"] == []
+
+
+def test_stream_add_record_with_summary_strips_thinking_tags(
+    manager: NotebookManager,
+    monkeypatch,
+) -> None:
+    class FakeSummarizeAgent:
+        def __init__(self, language: str = "en") -> None:
+            self.language = language
+
+        async def stream_summary(self, **_kwargs):
+            yield "<thi"
+            yield "nk>private reasoning</think>\n"
+            yield "Final reusable summary."
+
+    monkeypatch.setattr(
+        "deeptutor.api.routers.notebook.NotebookSummarizeAgent",
+        FakeSummarizeAgent,
+    )
+    nb = manager.create_notebook(name="My Notes")
+
+    async def collect_events() -> list[dict]:
+        request = importlib.import_module("deeptutor.api.routers.notebook").AddRecordRequest(
+            notebook_ids=[nb["id"]],
+            record_type="chat",
+            title="Streaming save",
+            user_query="Explain Fourier",
+            output="Fourier transform is...",
+        )
+        events: list[dict] = []
+        async for raw in importlib.import_module(
+            "deeptutor.api.routers.notebook"
+        )._stream_add_record_with_summary(request):
+            assert "<think" not in raw.lower()
+            assert "private reasoning" not in raw
+            events.append(json.loads(raw.removeprefix("data: ").strip()))
+        return events
+
+    events = asyncio.run(collect_events())
+    assert events[-1]["type"] == "result"
+    assert events[-1]["summary"] == "Final reusable summary."
+
+    detail = manager.get_notebook(nb["id"])
+    assert detail is not None
+    assert detail["records"][0]["summary"] == "Final reusable summary."

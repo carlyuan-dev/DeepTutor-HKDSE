@@ -22,8 +22,17 @@ class TestNormalizeProviderName:
 
     @pytest.mark.parametrize(
         "value",
-        [None, "", "  ", "llamaindex", "LlamaIndex", "lightrag", "raganything",
-         "raganything_docling", "totally_unknown_xyz"],
+        [
+            None,
+            "",
+            "  ",
+            "llamaindex",
+            "LlamaIndex",
+            "lightrag",
+            "raganything",
+            "raganything_docling",
+            "totally_unknown_xyz",
+        ],
     )
     def test_collapses_to_default(self, value) -> None:
         assert normalize_provider_name(value) == DEFAULT_PROVIDER
@@ -76,3 +85,19 @@ class TestRAGServiceClassHelpers:
 class TestToolLayerExports:
     def test_get_available_providers_matches_class_method(self) -> None:
         assert get_available_providers() == RAGService.list_providers()
+
+    def test_rag_search_requires_kb_name(self) -> None:
+        import asyncio
+
+        from deeptutor.tools.rag_tool import rag_search
+
+        with pytest.raises(ValueError, match="kb_name"):
+            asyncio.run(rag_search(query="hi", kb_name=""))
+
+    def test_rag_search_requires_query(self) -> None:
+        import asyncio
+
+        from deeptutor.tools.rag_tool import rag_search
+
+        with pytest.raises(ValueError, match="non-empty"):
+            asyncio.run(rag_search(query="", kb_name="any"))

@@ -19,6 +19,7 @@ import {
   Sparkles,
   Sticker,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import type { Block, BlockType, BlockStatus } from "@/lib/book-types";
 
@@ -54,30 +55,6 @@ const TYPE_LABEL_EN: Record<BlockType, string> = {
   concept_graph: "Concept graph",
 };
 
-const TYPE_LABEL_ZH: Record<BlockType, string> = {
-  text: "文本",
-  section: "章节",
-  callout: "要点",
-  quiz: "测验",
-  user_note: "笔记",
-  figure: "图示",
-  interactive: "交互",
-  animation: "动画",
-  code: "代码",
-  timeline: "时间线",
-  flash_cards: "闪卡",
-  deep_dive: "深入",
-  concept_graph: "概念图",
-};
-
-const HEADER_EN = "On this page";
-const HEADER_ZH = "本页内容";
-
-const COLLAPSE_TIP_EN = "Hide outline";
-const COLLAPSE_TIP_ZH = "隐藏目录";
-const EXPAND_TIP_EN = "Show outline";
-const EXPAND_TIP_ZH = "展开目录";
-
 function shortLabel(block: Block, fallback: string): string {
   const title = (block.title || "").trim();
   if (title) return title;
@@ -86,7 +63,8 @@ function shortLabel(block: Block, fallback: string): string {
   if (focus) return focus;
   const role = typeof params.role === "string" ? params.role.trim() : "";
   if (role) return `${fallback} · ${role}`;
-  const variant = typeof params.variant === "string" ? params.variant.trim() : "";
+  const variant =
+    typeof params.variant === "string" ? params.variant.trim() : "";
   if (variant) return `${fallback} · ${variant}`;
   return fallback;
 }
@@ -112,27 +90,20 @@ export interface PageOutlineNavProps {
   blocks: Block[];
   scrollContainer?: HTMLElement | null;
   language?: string;
-  /** Stable identifier (e.g. page id) used to reset collapsed state when the page changes. */
-  resetKey?: string;
 }
 
 export default function PageOutlineNav({
   blocks,
   scrollContainer,
-  language,
-  resetKey,
+  language: _language,
 }: PageOutlineNavProps) {
-  const isZh = (language || "").toLowerCase().startsWith("zh");
-  const labelMap = isZh ? TYPE_LABEL_ZH : TYPE_LABEL_EN;
-  const headerText = isZh ? HEADER_ZH : HEADER_EN;
-  const collapseTip = isZh ? COLLAPSE_TIP_ZH : COLLAPSE_TIP_EN;
-  const expandTip = isZh ? EXPAND_TIP_ZH : EXPAND_TIP_EN;
+  const { t } = useTranslation();
+  const headerText = t("On this page");
+  const collapseTip = t("Hide outline");
+  const expandTip = t("Show outline");
 
-  // Default: expanded. Reset whenever the page changes.
+  // Default: expanded; PageReader keys this component by page id.
   const [collapsed, setCollapsed] = useState(false);
-  useEffect(() => {
-    setCollapsed(false);
-  }, [resetKey]);
 
   // Track which block is currently in view for active highlight.
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -247,7 +218,7 @@ export default function PageOutlineNav({
           <ol className="flex-1 overflow-y-auto px-1.5 py-1.5">
             {visibleBlocks.map((block, idx) => {
               const Icon = TYPE_ICON[block.type] || FileText;
-              const fallbackLabel = labelMap[block.type] || block.type;
+              const fallbackLabel = t(TYPE_LABEL_EN[block.type] || block.type);
               const label = shortLabel(block, fallbackLabel);
               const isActive = block.id === activeId;
               const isError = block.status === "error";

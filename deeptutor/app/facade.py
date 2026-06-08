@@ -9,7 +9,7 @@ from typing import Any, AsyncIterator
 
 from deeptutor.runtime.registry.capability_registry import get_capability_registry
 from deeptutor.services.notebook import get_notebook_manager
-from deeptutor.services.session import get_sqlite_session_store, get_turn_runtime_manager
+from deeptutor.services.session import get_session_store, get_turn_runtime_manager
 
 
 @dataclass(slots=True)
@@ -58,7 +58,7 @@ class DeepTutorApp:
 
     def __init__(self) -> None:
         self.runtime = get_turn_runtime_manager()
-        self.store = get_sqlite_session_store()
+        self.store = get_session_store()
         self.notebooks = get_notebook_manager()
         self.capabilities = get_capability_registry()
 
@@ -105,13 +105,15 @@ class DeepTutorApp:
                 install_hint=(
                     ""
                     if available
-                    else "Install with `pip install deeptutor-cli[math-animator]` "
+                    else "Install with `pip install -e '.[math-animator]'` "
                     "or `pip install -r requirements/math-animator.txt`."
                 ),
             )
         return CapabilityAvailability(name=resolved, available=True)
 
-    async def start_turn(self, request: TurnRequest | dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    async def start_turn(
+        self, request: TurnRequest | dict[str, Any]
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         if isinstance(request, dict):
             request = TurnRequest(**request)
         resolved_capability = self.resolve_capability(request.capability)
@@ -184,13 +186,17 @@ class DeepTutorApp:
     def add_record(self, **kwargs: Any) -> dict[str, Any]:
         return self.notebooks.add_record(**kwargs)
 
-    def update_record(self, notebook_id: str, record_id: str, **kwargs: Any) -> dict[str, Any] | None:
+    def update_record(
+        self, notebook_id: str, record_id: str, **kwargs: Any
+    ) -> dict[str, Any] | None:
         return self.notebooks.update_record(notebook_id, record_id, **kwargs)
 
     def remove_record(self, notebook_id: str, record_id: str) -> bool:
         return self.notebooks.remove_record(notebook_id, record_id)
 
-    def get_records_by_references(self, notebook_references: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def get_records_by_references(
+        self, notebook_references: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.notebooks.get_records_by_references(notebook_references)
 
 

@@ -16,19 +16,19 @@ Layout (relative to ``data/user/workspace/co-writer/``)::
 from __future__ import annotations
 
 import json
+import logging
 import os
+from pathlib import Path
 import shutil
 import time
-import uuid
-from pathlib import Path
 from typing import Any
+import uuid
 
 from pydantic import BaseModel, Field
 
-from deeptutor.logging import get_logger
 from deeptutor.services.path_service import get_path_service
 
-logger = get_logger("co_writer.storage")
+logger = logging.getLogger(__name__)
 
 
 class CoWriterDocument(BaseModel):
@@ -100,9 +100,7 @@ def _derive_title(content: str, fallback: str = "Untitled draft") -> str:
 def _build_preview(content: str, limit: int = 160) -> str:
     if not content:
         return ""
-    cleaned = "\n".join(
-        line.strip() for line in content.splitlines() if line.strip()
-    )
+    cleaned = "\n".join(line.strip() for line in content.splitlines() if line.strip())
     cleaned = cleaned.replace("\n", "  ")
     if len(cleaned) <= limit:
         return cleaned
@@ -112,8 +110,14 @@ def _build_preview(content: str, limit: int = 160) -> str:
 class CoWriterStorage:
     """File-system backed store for Co-Writer documents."""
 
-    def __init__(self) -> None:
-        self.path_service = get_path_service()
+    def __init__(self, path_service=None) -> None:
+        self._path_service = path_service
+
+    @property
+    def path_service(self):
+        if self._path_service is not None:
+            return self._path_service
+        return get_path_service()
 
     # ── Path helpers ─────────────────────────────────────────────────────
 
@@ -148,7 +152,7 @@ class CoWriterStorage:
         ids: list[str] = []
         for child in root.iterdir():
             if child.is_dir() and child.name.startswith("doc_"):
-                ids.append(child.name[len("doc_"):])
+                ids.append(child.name[len("doc_") :])
         return ids
 
     def list_documents(self) -> list[CoWriterDocumentSummary]:
@@ -242,14 +246,14 @@ class CoWriterStorage:
         _atomic_write_json(self.manifest_path(document.id), document.model_dump(mode="json"))
 
 
-_storage: CoWriterStorage | None = None
+_storages: dict[str, CoWriterStorage] = {}
 
 
 def get_co_writer_storage() -> CoWriterStorage:
-    global _storage
-    if _storage is None:
-        _storage = CoWriterStorage()
-    return _storage
+    key = str(get_path_service().workspace_root.resolve())
+    if key not in _storages:
+        _storages[key] = CoWriterStorage()
+    return _storages[key]
 
 
 __all__ = [

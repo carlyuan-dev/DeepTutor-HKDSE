@@ -9,6 +9,7 @@ create / confirm / compile / read / delete + a per-book event stream.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
@@ -24,10 +25,9 @@ from deeptutor.book.models import ContentType
 from deeptutor.book.streaming import SOURCE as BOOK_SOURCE
 from deeptutor.core.stream import StreamEventType
 from deeptutor.core.stream_bus import StreamBus
-from deeptutor.logging import get_logger
 
 router = APIRouter()
-logger = get_logger("book.router")
+logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -122,6 +122,17 @@ class SupplementRequest(BaseModel):
     book_id: str
     page_id: str
     topic: str
+
+
+class PageChatSessionRequest(BaseModel):
+    book_id: str
+    page_id: str
+    session_id: str
+
+
+class RebuildBookRequest(BaseModel):
+    book_id: str
+    auto_compile: bool = True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -221,9 +232,7 @@ async def confirm_proposal(req: ConfirmProposalRequest) -> dict[str, Any]:
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"Invalid proposal: {exc}")
     try:
-        book, spine = await engine.confirm_proposal(
-            book_id=req.book_id, edited_proposal=edited
-        )
+        book, spine = await engine.confirm_proposal(book_id=req.book_id, edited_proposal=edited)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
@@ -264,9 +273,7 @@ async def compile_page(req: CompilePageRequest) -> dict[str, Any]:
     """Drive the compiler for the page the user just opened (current-page priority)."""
     engine = get_book_engine()
     try:
-        page = await engine.compile_page(
-            book_id=req.book_id, page_id=req.page_id, force=req.force
-        )
+        page = await engine.compile_page(book_id=req.book_id, page_id=req.page_id, force=req.force)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
@@ -331,9 +338,7 @@ async def insert_block(req: InsertBlockRequest) -> dict[str, Any]:
 @router.post("/books/delete-block")
 async def delete_block(req: DeleteBlockRequest) -> dict[str, Any]:
     engine = get_book_engine()
-    ok = await engine.delete_block(
-        book_id=req.book_id, page_id=req.page_id, block_id=req.block_id
-    )
+    ok = await engine.delete_block(book_id=req.book_id, page_id=req.page_id, block_id=req.block_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Block not found")
     return {"ok": True}
@@ -441,6 +446,32 @@ async def supplement(req: SupplementRequest) -> dict[str, Any]:
     return {"block": block.model_dump(mode="json")}
 
 
+@router.post("/books/page-chat-session")
+async def set_page_chat_session(req: PageChatSessionRequest) -> dict[str, Any]:
+    engine = get_book_engine()
+    book = engine.set_page_chat_session(
+        book_id=req.book_id,
+        page_id=req.page_id,
+        session_id=req.session_id,
+    )
+    if book is None:
+        raise HTTPException(status_code=404, detail="Book or page not found")
+    return {"book": book.model_dump(mode="json")}
+
+
+@router.post("/books/rebuild")
+async def rebuild_book(req: RebuildBookRequest) -> dict[str, Any]:
+    engine = get_book_engine()
+    try:
+        pages = await engine.rebuild_book(book_id=req.book_id, auto_compile=req.auto_compile)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"rebuild_book failed: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+    return {"pages": [p.model_dump(mode="json") for p in pages]}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # WebSocket – streamed Book events
 # ─────────────────────────────────────────────────────────────────────────────
@@ -468,6 +499,13 @@ async def book_websocket(ws: WebSocket) -> None:
         {"type": "compile_page",     "book_id": "...", "page_id": "..."}
         {"type": "regenerate_block", "book_id": "...", "page_id": "...", "block_id": "...", "params_override": {}}
     """
+    from deeptutor.api.routers.auth import ws_auth_failed, ws_require_auth
+    from deeptutor.multi_user.context import reset_current_user
+
+    user_token = await ws_require_auth(ws)
+    if user_token is ws_auth_failed:
+        return
+
     await ws.accept()
     closed = False
 
@@ -487,9 +525,12 @@ async def book_websocket(ws: WebSocket) -> None:
                     continue
                 await send(_serialize_event(event))
                 if event.type == StreamEventType.STAGE_END and event.stage in {
-                    "ideation", "spine", "compilation"
+                    "ideation",
+                    "spine",
+                    "compilation",
                 }:
                     pass  # keep streaming – multiple stages per task
+
         return asyncio.create_task(_forward())
 
     try:
@@ -522,9 +563,7 @@ async def book_websocket(ws: WebSocket) -> None:
                         question_categories=[
                             int(c) for c in (data.get("question_categories") or [])
                         ],
-                        question_entries=[
-                            int(e) for e in (data.get("question_entries") or [])
-                        ],
+                        question_entries=[int(e) for e in (data.get("question_entries") or [])],
                         language=str(data.get("language") or "en"),
                         stream=bus,
                     )
@@ -600,9 +639,7 @@ async def book_websocket(ws: WebSocket) -> None:
                     )
 
                 else:
-                    await send(
-                        {"type": "error", "content": f"Unknown message type: {msg_type}"}
-                    )
+                    await send({"type": "error", "content": f"Unknown message type: {msg_type}"})
 
             except Exception as exc:
                 logger.error(f"book ws action {msg_type} failed: {exc}", exc_info=True)
@@ -625,3 +662,8 @@ async def book_websocket(ws: WebSocket) -> None:
             await ws.close()
         except Exception:
             pass
+        if user_token is not None:
+            try:
+                reset_current_user(user_token)
+            except Exception:
+                pass

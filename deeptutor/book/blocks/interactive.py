@@ -7,14 +7,13 @@ renders in an isolated iframe.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
-
-from deeptutor.logging import get_logger
 
 from ..models import BlockType, SourceAnchor
 from .base import BlockContext, BlockGenerator, GenerationFailure
 
-logger = get_logger("book.blocks.interactive")
+logger = logging.getLogger(__name__)
 
 
 class InteractiveGenerator(BlockGenerator):
@@ -42,7 +41,7 @@ class InteractiveGenerator(BlockGenerator):
         focus_clause = f" focusing on {focus}" if focus else ""
         user_input = (
             f"Build an {interaction} HTML page for the chapter "
-            f"\"{chapter_title}\"{focus_clause}. The page should let the learner "
+            f'"{chapter_title}"{focus_clause}. The page should let the learner '
             "manipulate state, drag/click controls, or step through a guided "
             "demo to internalise the concept."
         )
