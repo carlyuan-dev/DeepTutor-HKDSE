@@ -37,9 +37,27 @@ def _set_similarity_top_k(retriever: Any, top_k: int) -> Any:
     return retriever
 
 
+def _index_node_count(index: Any) -> int | None:
+    """Best-effort count of nodes in the index, used to clamp BM25 top_k.
+
+    bm25s raises when the requested ``k`` exceeds the corpus size, so we must
+    never ask BM25 for more results than there are nodes (small KBs from a few
+    short documents routinely have fewer chunks than the candidate top_k).
+    """
+    try:
+        docs = index.docstore.docs
+        return len(docs)
+    except Exception:
+        return None
+
+
 def build_bm25_retriever(index: Any, storage_dir: Path, *, top_k: int) -> Any | None:
     """Build or load LlamaIndex's official BM25 retriever if available."""
     top_k = max(1, int(top_k))
+    node_count = _index_node_count(index)
+    if node_count:
+        # Clamp to corpus size: bm25s errors out when k > number of nodes.
+        top_k = min(top_k, node_count)
     bm25_cls = _import_bm25_retriever()
     if bm25_cls is None:
         logger.info(
