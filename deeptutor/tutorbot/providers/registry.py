@@ -316,6 +316,27 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="http://localhost:11434/v1",
     ),
     ProviderSpec(
+        name="lm_studio",
+        keywords=("lm-studio", "lmstudio", "lm_studio"),
+        env_key="LM_STUDIO_API_KEY",
+        display_name="LM Studio",
+        backend="openai_compat",
+        is_local=True,
+        detect_by_base_keyword="1234",
+        default_api_base="http://localhost:1234/v1",
+    ),
+    ProviderSpec(
+        # Apple MLX local inference via `mlx_lm.server` (OpenAI-compatible).
+        name="mlx",
+        keywords=("mlx", "mlx_lm", "mlx-lm", "apple_mlx"),
+        env_key="MLX_API_KEY",
+        display_name="Apple MLX (Local)",
+        backend="openai_compat",
+        is_local=True,
+        detect_by_base_keyword="8081",
+        default_api_base="http://localhost:8081/v1",
+    ),
+    ProviderSpec(
         name="ovms",
         keywords=("openvino", "ovms"),
         env_key="",

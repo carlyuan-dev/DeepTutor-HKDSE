@@ -380,6 +380,18 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="http://localhost:8080/v1",
     ),
     ProviderSpec(
+        # Apple MLX local inference via `mlx_lm.server` (OpenAI-compatible).
+        # Run on Apple Silicon:  mlx_lm.server --model <repo-or-path> --port 8081
+        name="mlx",
+        keywords=("mlx", "mlx_lm", "mlx-lm", "apple_mlx"),
+        env_key="MLX_API_KEY",
+        display_name="Apple MLX (Local)",
+        backend="openai_compat",
+        is_local=True,
+        detect_by_base_keyword="8081",
+        default_api_base="http://localhost:8081/v1",
+    ),
+    ProviderSpec(
         name="lemonade",
         keywords=("lemonade",),
         env_key="LEMONADE_API_KEY",

@@ -278,6 +278,7 @@ from deeptutor.api.routers import (
     hkdse_english,
     hkdse_maths,
     knowledge,
+    market_tools,
     memory,
     notebook,
     paper_forge,
@@ -392,6 +393,9 @@ app.include_router(
 )
 app.include_router(
     hkdse_maths.router, prefix="/api/v1/hkdse/maths", tags=["hkdse-maths"], dependencies=_auth
+)
+app.include_router(
+    market_tools.router, prefix="/api/v1/market-tools", tags=["market-tools"], dependencies=_auth
 )
 
 # Unified WebSocket endpoint — auth is checked inside the handler (WebSockets
