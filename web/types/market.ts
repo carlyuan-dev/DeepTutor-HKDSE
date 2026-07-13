@@ -72,6 +72,26 @@ export interface DimensionScore {
   score: number;
   max_score: number;
   comment: string;
+  individual_scores?: number[];   // 3-agent scores [strict, lenient, balanced]
+  score_range?: number;           // max - min among agents
+  confidence?: number;            // 0-100%
+}
+
+export interface EnsembleInfo {
+  method: string;
+  agents: string[];
+  overall_confidence: number;
+  agreement_level: string;        // "high" | "moderate" | "low"
+  confidence_breakdown?: {
+    overall: number;
+    interpretation: string;
+  };
+}
+
+export interface ReflectionInfo {
+  performed: boolean;
+  score_adjusted?: boolean;
+  note: string;
 }
 
 export interface ChineseEssayResult {
@@ -85,6 +105,8 @@ export interface ChineseEssayResult {
   improvements: string[];
   overall_comment: string;
   annotated_text: string;
+  ensemble?: EnsembleInfo;
+  reflection?: ReflectionInfo;
 }
 
 export interface ChineseEssayRequest {
