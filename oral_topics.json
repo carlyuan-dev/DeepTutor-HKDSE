@@ -1,0 +1,606 @@
+{
+  "year": 2019,
+  "source": "HKDSE English Paper 4 2019",
+  "topics": [
+    {
+      "id": "2019_1.1",
+      "year": 2019,
+      "set": 1,
+      "topic": "Urban Redevelopment",
+      "category": "social_issues",
+      "prompt": "This article appeared in a local newspaper:\n\nRedevelopment in Western District leaves residents without a good night’s sleep.\n\n“Redevelopment of old areas gives opportunities for developers to earn money. But local people do not have any say in the redevelopment and are forced to leave.”\n\nIf you took a walk around Western District just a couple of years ago, you would see mostly stationery shops, bakeries, grocers and university students eating in cha chaan tengs. For years, even with its proximity to Central, the old neighbourhood remained largely untouched, retaining its traditional characteristics and flavour.\n\nBut when three new MTR stations —- Sai Ying Pun, HKU and Kennedy Town —- opened in the area in late 2014, they brought with them a whole range of bars and expensive restaurants that drew in young rich hipsters. Today, Western District is the new, trendy neighbourhood, with young professionals increasingly turning older buildings into expensive trendy flats, forcing many long-term residents to leave the area that has been their home all their lives.\n\nTraditional shops are forced to leave because of high rents: 250 of the 700 shops in the Sai Ying Pun area either changed tenants or closed down from 2015 to 2017.\n\nThere have been multiple complaints from residents about noise from bars and restaurants. “For families and the elderly in this area, they are disturbed by the noise every day and can’t afford to shop,” one netizen said. “We can’t stop the world from developing, but there has to be a balance.”",
+      "discussion_task": "Your class is discussing the redevelopment of older districts in Hong Kong. Your group has been asked to discuss the problems redevelopment causes.",
+      "guiding_questions": [
+        "why old districts are redeveloped",
+        "what problems redevelopment cause",
+        "what the government should do to reduce the problems residents face",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "What do you like about the area you live in?",
+        "What is the biggest advantage of redevelopment?",
+        "What types of shops are typical of old neighbourhoods?",
+        "Why do older people like to live in traditional districts?",
+        "What would you like to change about your district?",
+        "Would you prefer to live in an old neighbourhood or a redeveloped area?",
+        "Is the redevelopment of old areas too slow in Hong Kong?",
+        "Who benefits most from redevelopment?"
+      ]
+    },
+    {
+      "id": "2019_1.2",
+      "year": 2019,
+      "set": 1,
+      "topic": "Wedding Photography",
+      "category": "social_issues",
+      "prompt": "This article appeared in an online magazine:\n\nFour types of wedding photos to capture your big day\n\nChoosing the style for your wedding photos can be one of the trickiest decisions you have to make in planning for your big day. Read on to find out the four main styles:\n\n1. Creative: Some photographers use unusual and creative situations to take memorable wedding photos. One interesting photo taken by a famous photographer shows a happy couple in the bathroom with the husband sitting on the toilet and the wife in the bath!\n\n2. Glamour: Some wedding photography looks so good it could be a famous couple in a magazine spread. Posing at a beautiful location in Hong Kong has always been popular. In recent years, though, travelling to glamorous places in Europe and Japan has become common as couples look for more and more exciting and glamorous locations.\n\n3. Storytelling: Storytelling means photographing a wedding in a true or natural style. It should be fun and light-hearted, but also capture the various feelings the couple go through during their wedding. Often there are no famous buildings or backgrounds; the focus is on the relationship between the couple.\n\n4. Studio: The most traditional way of taking wedding photos is to book a studio. The advantage of shooting indoors is that all factors such as weather and light are under control. The couple are able to change into a number of different outfits. The studio also offers a more private setting and allows for more personal and detailed photographs.",
+      "discussion_task": "Your class teacher is getting married. She has asked you about what type of wedding photos you like best. You are discussing this With your group.",
+      "guiding_questions": [
+        "why wedding photographs are important",
+        "what is important for wedding photos to show",
+        "which style you think is most popular",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Do you like people taking photographs of you?",
+        "Have you ever been to a wedding?",
+        "What photographs do you like to share?",
+        "What do people do with their wedding photographs?",
+        "Would you like to spend a lot of money on a wedding?",
+        "Which is more important: a wedding photo or a wedding video?",
+        "Are professionally taken photos still important nowadays?",
+        "Are weddings still important in Hong Kong?"
+      ]
+    },
+    {
+      "id": "2019_1.3",
+      "year": 2019,
+      "set": 1,
+      "topic": "Online Scams",
+      "category": "technology",
+      "prompt": "This article appeared in an online blog:\n\nOnline Scams: Get Wise!\n\nMore and more Hong Kong people are being cheated online. Not only is the number of crimes increasing, but the amount of money being stolen is also increasing. And what’s more, you have to be vigilant because these online scams can come in all shapes and forms. The most common at the moment are:\n\nDating romance scams\nScammers create false IDs on dating websites. Once they’ve got your trust, they ask to borrow money which, needless to say, is never repaid. In September 2018, a local woman was cheated out of more than 100 million dollars by her online boyfriend.\n\nComputer hacking\nEmails are often used to trick people out of passwords or to use software to spy on people as they use their own computer. Once they have your password they can hack into your account (or accounts if you’re stupid enough to use the same password for multiple accounts) and take control of...well, your life!\n\nOnline shopping scams\nA common scam is not getting what you paid for. A scammer will sell a product, but send a faulty or an inferior product or sometimes won’t send any product at all.\n\nBanking and credit card scams\nScammers send text messages and emails that pretend to be from a bank or financial institution. They usually claim there is a problem with your account and request details. They then use these details to steal money from your account.\n\nThe police will be visiting your school to talk about online crimes.",
+      "discussion_task": "Your teacher has asked your group to discuss this problem first.",
+      "guiding_questions": [
+        "whether online crime is a serious problem in Hong Kong",
+        "what type of online crimes students should worry about most",
+        "how students should protect themselves",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Do you spend much time online?",
+        "Do you ever shop online?",
+        "Would you make friends with someone online?",
+        "Should online safety be taught in schools?",
+        "Is it possible to make real friends on the internet?",
+        "Why is the number of online crimes increasing?",
+        "What kinds of people are likely to be cheated online?",
+        "Who should be blamed for online scams?"
+      ]
+    },
+    {
+      "id": "2019_2.1",
+      "year": 2019,
+      "set": 2,
+      "topic": "Fortune Telling",
+      "category": "social_issues",
+      "prompt": "This text appeared in the author’s personal blog page:\n\nTODAY I SAW A FORTUNE TELLER IN HONG KONG...\n\nFortune telling is one of the oldest professions in the world, and it still plays a critical role in Hong Kong. It’s much more a science than you think. Keen to experience the real Hong Kong culture, my friend and I went off to Temple Street and once there decided to go with the palm and face reading. We sat on our plastic stools, bargained the price and got started.\n\nI go first. The only thing the fortune teller asks me is my date of birth. He looks at his books of Chinese zodiac for a moment, then observes my face intensely...\n\n...After a while, he starts describing my life accurately! My job, how I love the outdoors, even my plans for the future. So far I’m quite impressed, he’s really getting the details right. This guy is good. He sees that something changed in 2012, I went in a whole new direction in my life — the year I quit my job to travel the world. He didn’t ask if I was in a relationship, but he starts describing my husband — a handsome man — and the relationship accurately. He looks at me with a very serious expression and insists: he is not the right man for you.\n\nAfter fifteen minutes talking, the fortune teller is exhausted. To be honest, so am I. I came just as a curious traveller, and ended up a believer. And worried about my husband!",
+      "discussion_task": "Your class is doing a project on Hong Kong culture in the 21st century. Your group has been asked to discuss the art of fortune telling.",
+      "guiding_questions": [
+        "why people like going to fortune tellers",
+        "why fortune telling is an important part of Chinese culture",
+        "whether fortune telling will remain popular in the modern world",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Would you go to a fortune teller?",
+        "Do you believe in fortune telling?",
+        "Do you want to know about your future?",
+        "What kind of people believe in fortune tellers?",
+        "Would you like to study fortune telling as a subject?",
+        "Do you believe some people are born lucky?",
+        "Do fortune tellers take advantage of people?",
+        "Should fortune tellers need a licence to practise?"
+      ]
+    },
+    {
+      "id": "2019_2.2",
+      "year": 2019,
+      "set": 2,
+      "topic": "Screen Time Control",
+      "category": "technology",
+      "prompt": "This review appeared in a tech magazine:\n\nApple Screen Time Control\n\nAre your children always on their phones and iPads? Do you, as a parent, worry about the websites your children are visiting? Does your family argue over screen time?\n\nThe answer may well be Apple’s new Screen Time Control,\n\nScreen Time Control is a new app that allows parents to manage the amount of time their children spend on their iPad or iPhone by using their own iPhone to check the websites or apps their children are using.\n\nScreen Time Control also has a feature called “Downtime”. This allows parents to block certain apps and to set up a time limit of how long children can spend on their phones. That means no more late-night phone calls, unlimited playing of online games or watching YouTube videos.\n\nWith Apple Screen Time Control, when apps run past the time limit, their icons go dark and the apps simply won’t work. Useful apps, such as e-books or homework sites or messaging for emergencies are not affected.\n\nApple already has parental controls for blocking certain movies, adult websites and podcasts with explicit language but this new feature will allow parents better control over how children use their devices.\n\nSo a neat new app to help parenting, although I would always recommend that it is best for families to have serious conversations about screen time. It’s only through a mutual understanding about why the restrictions are imposed that all family members can understand them.",
+      "discussion_task": "Your school is holding a meeting to introduce Apple’s Screen Time Control to students and parents. Your group is meeting to discuss the idea.",
+      "guiding_questions": [
+        "whether parents should control students’ screen time",
+        "advantages and disadvantages of Apple Screen Time Control",
+        "whether software like Apple Screen Time Control is the best way to limit students’ screen time",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Do you spend a lot of time online?",
+        "Does being online affect your homework?",
+        "Would you like your parents to control your screen time?",
+        "Why do you think students spend so much time on their phones?",
+        "What is the biggest problem caused by too much screen time?",
+        "Does spending time on your phone affect family relationships?",
+        "Should parents know everything their children do online?",
+        "Can students be trusted to control their own screen time?"
+      ]
+    },
+    {
+      "id": "2019_2.3",
+      "year": 2019,
+      "set": 2,
+      "topic": "Development of Sport in Hong Kong",
+      "category": "social_issues",
+      "prompt": "This article appeared in a local newspaper:\n\nLearning from little Iceland\n\nIn recent years, Iceland, a tiny country of just 350,000 people has become surprisingly successful in international football. Ten years ago, they did not even rank in the top 100 of the FIFA World Rankings, but have now jumped up to 22nd place, drawing 1-1 with Argentina at the World Cup and beating England before that.\n\nThe Hong Kong Football Association (HKFA) sees Iceland as a great example of what could be done to improve local football. Both Hong Kong and Iceland face similar problems such as the lack of locations to play the sport and a lack of players. The difference lies in the fact that Iceland has invested money in building playing facilities and in training coaches.\n\nHoping to learn from Iceland’s example, the HKFA will send representatives to Iceland to learn how to improve. Perhaps the most exciting part of all is that the Hong Kong youth team will travel to Iceland for ten days to play, allowing our young players to experience Western football and its culture.\n\nCritics of the $1 million project argue that such a scheme cannot solve the real problems of Hong Kong football and sport in general. Those in charge of sport in Hong Kong are often accused of not having the interests of the athletes at heart. The head of the Olympic committee came under fierce criticism in the 2014 Winter Olympics for taking six officials to the Olympics but no doctor for the competing athlete.",
+      "discussion_task": "Your class is doing a project on “The Importance of International Sport”. Your group has been asked to discuss the development of sport in Hong Kong.",
+      "guiding_questions": [
+        "whether Hong Kong is successful in international sport",
+        "whether sport is important to Hong Kong people",
+        "whether Hong Kong can learn from other countries to improve sports",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Can training improve sport skills?",
+        "Why do many Hong Kong teenagers stop doing sport?",
+        "Do women have the same opportunities to play sport as men?",
+        "Why are some countries more successful than others at sport?",
+        "Are attitudes to sport changing in Hong Kong?",
+        "Is there too much emphasis on sport nowadays?",
+        "Will Hong Kong ever become famous for sport?",
+        "Can sport teach you life skills?"
+      ]
+    },
+    {
+      "id": "2019_3.1",
+      "year": 2019,
+      "set": 3,
+      "topic": "Social Media and Facebook",
+      "category": "technology",
+      "prompt": "This article appeared in an online magazine:\n\nDEATH OF FACEBOOK.\n\nSince Facebook’s launch in 2006, it has become THE number one platform for sharing photos, chatting and sharing much more. Its founder, Mark Zuckerberg, is now one of the richest men in the world, Today there are over a billion registered users of Facebook.\n\nStorm clouds may be on the horizon for Facebook though. Many young people are less interested in using Facebook than older generations. Large numbers of young people see Facebook as being something that is ‘uncool’ and used by older people. As a result, there is a growing trend for the younger generation to use other social media platforms such as Snapchat, a photo sharing app.\n\nSecurity is also causing concerns for Facebook. Criminals and terrorists have been using Facebook and large amounts of ‘fake news’ in recent months have led to increasing criticism. In particular, Russia has been accused of using Facebook to try to influence election results in a number of countries.\n\nBut for Hongkongers the biggest worry now seems to be privacy. A recent report indicated that companies are increasingly checking job applicants’ Facebook profiles before interviews to find out more about them and also what they really do in their free time. Some companies regularly check what their staff post on Facebook and a number of cases of staff being fired because of comments they posted have been reported.\n\nAs the young switch to other platforms and privacy issues grow, more questions are being asked about Facebook’s long term success.\n\nYou are doing a project on social media.",
+      "discussion_task": "Your group has been asked to discuss Facebook and the future of social media.",
+      "guiding_questions": [
+        "whether young people in Hong Kong use Facebook",
+        "what advice you would give people about using Facebook",
+        "whether social media will continue to be popular",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Do you use Facebook?",
+        "What do most people like to do on Facebook?",
+        "What social media do you enjoy using the most?",
+        "Should schools teach students how to use social media effectively?",
+        "Why might social media make people feel lonely?",
+        "How do you know what you read on social media is true?",
+        "How do you think social media will change in the future?",
+        "Why do people create fake Facebook pages?"
+      ]
+    },
+    {
+      "id": "2019_3.2",
+      "year": 2019,
+      "set": 3,
+      "topic": "Gender Pay Gap",
+      "category": "social_issues",
+      "prompt": "This article appeared in a local newspaper:\n\nWomen still paid badly, survey finds\n\nWomen are on average still paid HK$15 less per hour than men, according to the latest figures released by the government.\n\nThe statistics, which were compiled and released by the Hong Kong Census and Statistics Department, showed that the hourly salary of women in Hong Kong in 2017 was HK$60.50, compared to HK$75.90 for men. The problem is even worse in terms of monthly income. Young women in the 15-19 age bracket earned HK$3,100, while young men in the same age range earned HK$5,300.\n\nSurprisingly, the pay difference is true of men and women of all ages and levels of education. For example, men who had received post-secondary education were paid HK$118.30 per hour, while women with the same level of education only received HK$97.80. One reason often cited by apologists of this phenomenon is that it is understandable that women are paid less because they are more likely to leave the work force to take care of family members some time in the future.\n\nSome students expressed disappointment at the news of the gender pay gap. Tiffany Wong, 16, was concerned about traditional views regarding men and women affecting wages. “I think the belief that women are more suited to staying at home, taking care of the children and doing housework while men are better suited to a competitive office environment and working long hours, is still very real. Therefore, employers still tend to consider men for higher paid jobs than their female counterparts. They see it as a safer investment.”",
+      "discussion_task": "Your careers advisor is discussing discrimination in the workplace. Your group has been asked to discuss the gender pay gap.",
+      "guiding_questions": [
+        "whether there are differences in job performance between men and women",
+        "why women are generally paid less than men",
+        "how the gender pay gap could be reduced",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "What job would be suitable for you?",
+        "Are some jobs more suitable for women than men?",
+        "What jobs are seen as traditionally male or female jobs?",
+        "In what other ways are women treated unfairly?",
+        "Should it be illegal for men and women to be paid differently?",
+        "Will the gender pay gap continue in the future?",
+        "Apart from gender, why do some people get paid more than others?",
+        "Is Hong Kong becoming a fairer society?"
+      ]
+    },
+    {
+      "id": "2019_3.3",
+      "year": 2019,
+      "set": 3,
+      "topic": "Cheating in Schools",
+      "category": "education",
+      "prompt": "This email was sent to a Hong Kong secondary school teacher:\n\nDear Mr Wong,\n\nThe Disciplinary Team suspects that two students in your class have cheated on their homework assignment. The two students in question are Chan Tai Man and Chris Wong.\n\nWe have looked at the students’ homework assignment and they are almost identical, which suggests the two students have copied from each other. However, we need more evidence. Could you arrange to talk with each student separately so we can find out more about what happened?\n\nAfter you have spoken one-on-one with each student, we may need to re-interview them again. Please send us your findings and include any recommendations on how to handle this particular case. To deter students from repeating the same offence, we have used after-school detention for minor issues. For more serious cases, we meet with parents to try and understand any underlying issues. If a student continues to cheat - repeatedly, he or she may be asked to leave the school.\n\nThe school regards cheating as a serious issue and we will send a reminder to all students of the dangers of copying other students’ homework, using the internet to buy essays and using apps such as Google translate to do assignments.\n\nIf you have any questions, feel free to contact any of the members on the team.\n\nThe Disciplinary Team\n\nTwo students have been caught cheating at your school.",
+      "discussion_task": "Your class teacher has asked your group to discuss this issue.",
+      "guiding_questions": [
+        "why students cheat",
+        "whether cheating is a common problem in schools",
+        "suitable ways of dealing with the problem",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Do teachers know when students cheat?",
+        "Is there more cheating now than in the past?",
+        "Does technology make cheating easy?",
+        "Is copying from the internet cheating?",
+        "If parents do homework for their children, is that cheating?",
+        "What type of students tend to cheat?",
+        "Are some kinds of cheating worse than others?",
+        "Is cheating common in society?"
+      ]
+    },
+    {
+      "id": "2019_4.1",
+      "year": 2019,
+      "set": 4,
+      "topic": "Politeness in Hong Kong",
+      "category": "social_issues",
+      "prompt": "These letters to the editor appeared in a local newspaper:\n\nWhat the ‘door close’ button in Hong Kong lifts reveals about selfish city\n\nIn every lift in Hong Kong, the lettering on the “door close” button is worn with overuse. I’ve even seen people close the door before selecting the floor they want. On many occasions, I’ve had people stare at me blankly with a finger firmly on the button as I raced across a lift lobby. Why does this happen? Just to save a few seconds?\n\nI see this attitude of self-importance and selfishness in other parts of Hong Kong culture. It is rare to see people hold doors open, offer seats to the elderly or let people pass them on the pavement.\n\nPerhaps we should remove all the “door close” buttons from lifts. It would give us an extra few seconds to consider others.\n\nPeter Lok\n\n\nI disagree with Peter Lok’s logic in his July 27 letter. Why is there a door close button if we shouldn't use it? Is it there just to show we are polite because we do not press it? \n\nSurely, if someone is in a position to press that button and does not press it, they are being rude. The button is there to be pushed, to save busy people many seconds at a time so they do not have to wait for the door to close automatically. \n\nIn the same way, if we hold the door open for everyone we will never get to work.\n\nJudy Lai",
+      "discussion_task": "Your class is working on a project about living in densely populated urban areas. Your group has been asked to discuss the two points of view expressed in the letters.",
+      "guiding_questions": [
+        "which letter you agree with",
+        "other situations when crowded places cause problems",
+        "how to deal with these problems",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Do you prefer to use the lift or stairs?",
+        "Are you often in a hurry?",
+        "What behaviour do you think is impolite?",
+        "Do you agree that young people today are polite?",
+        "Does living in a city make people less polite?",
+        "Do we need to teach politeness?",
+        "Why is being polite important?",
+        "Do ideas of politeness change over time?"
+      ]
+    },
+    {
+      "id": "2019_4.2",
+      "year": 2019,
+      "set": 4,
+      "topic": "Unusual English Names",
+      "category": "social_issues",
+      "prompt": "This article appeared in a local magazine:\n\nUnusual English Names\n\nHong Kong has fallen in love with odd English names. Unusual names are everywhere: a top government official is called York, celebrities called Bambi, lawyers Bunny. Names not found in English-speaking countries are becoming more common.\n\nTo understand why Hongkongers choose to be called Ice or Chocolate instead of John or Jane, we must explain why we use English names in the first place. In the early 1980s, 90 percent of secondary schools taught in English. At that time it seemed desirable to have an English name for business or when working with foreigners. In school, it was easier for English-speaking teachers to remember students’ English names than their Chinese ones. As locals tend to only use their Chinese names with people who are really close, like family members, it became normal to use an English name when meeting people for the first time.\n\nBut the use of strange names?\n\nPartly, it is “incomplete knowledge” of the English language. Februar might have been a misspelling or the result of someone over-generalizing the use of the names of the months like April, May or June, or both. Also many unusual English names come from Chinese: Singer Lee Hak-kan’s English name is Hacken.\n\nNow the younger generation has found traditional names less attractive and want to be unique and different, taking names from brands like Chanel and Rolex. “I love my English name,” said Dictionary Leung, “I am the only Dictionary Leung in the world!”",
+      "discussion_task": "Your English teacher has asked you about the use of unusual English names in Hong Kong. Your group is going to discuss this topic.",
+      "guiding_questions": [
+        "how students choose their English name",
+        "what type of names you think are suitable and unsuitable",
+        "what problems unusual names cause",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Do you use English names with your friends?",
+        "Is it important to have a special name?",
+        "Do teachers use students’ English or Chinese names?",
+        "Are Chinese names for close friends and families?",
+        "Should non-Chinese people in Hong Kong have a Chinese name?",
+        "Why do some people change their name?",
+        "Why do some names become fashionable?",
+        "What should parents consider when choosing names for their children?"
+      ]
+    },
+    {
+      "id": "2019_4.3",
+      "year": 2019,
+      "set": 4,
+      "topic": "Role Models",
+      "category": "social_issues",
+      "prompt": "This poster appeared on the noticeboard of your school:\n\nPERSON OF THE YEAR 2019\n\nEach year we select a person whose behaviour or success can be used as a role model to encourage students to work hard and be successful. Last year we selected the singer Alan Tam Wing-lun. He was chosen as a role model because of his wide range of talents as a writer, composer, singer and actor.\n\nThis year we have nominated the four people below. One of them will be selected to be the school’s Person of the Year.\n\nART\nDodo Cheng - a Hong Kong film and television actress and host. She has won numerous acting awards in both film and television, as well as hosting awards. She is the hardest worker on TVB and represents a time when all Hongkongers worked hard for their dreams.\n\nSPORT\nSarah Lee Wat Sze - a Hong Kong professional cyclist. Her greatest success to date is winning the bronze medal at the London Olympics. She has been successful despite suffering from a childhood illness and being from humble beginnings.\n\nBusiness\nAlthough Richard Li did not graduate from university, he started his own company when he was 25 and has been one of the leading Hong Kong businessmen in recent years. He has three children and gives money regularly to charity.\n\nPOLITICS\nCarrie Lam Cheng Yuet-ngor was born into a poor family. She studied hard and entered Hong Kong University, then the Hong Kong government. After a stellar career in government she is now the Chief Executive of Hong Kong.\n\nThe principal wants to add more people to the list.",
+      "discussion_task": "Your group has been asked to suggest other people who might be a good candidate to be Person of the Year.",
+      "guiding_questions": [
+        "what can be learned from role models",
+        "why some students may not select the nominees listed",
+        "other potential nominees",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Do you have a role model?",
+        "Would you be a good role model?",
+        "Are musicians good role models?",
+        "Should senior form students be role models?",
+        "Does being a role model put pressure on celebrities?",
+        "Do we have different role models at different times in our lives?",
+        "Can people who are unsuccessful be a good role model?",
+        "What is the difference between an idol and a role model?"
+      ]
+    },
+    {
+      "id": "2019_5.1",
+      "year": 2019,
+      "set": 5,
+      "topic": "CCTV Surveillance",
+      "category": "technology",
+      "prompt": "This article appeared in a local newspaper:\n\nCCTV EVERYWHERE\n\nCCTV surveillance cameras have become such a common feature of Hong Kong that we often don’t notice them. But they notice you.\n\nMany people are worried about the use of closed-circuit television and how it affects the privacy of individuals.\n\nTo test these concerns, we took a trip from Causeway Bay to Chek Lap Kok airport to find out how much we are being watched.\n\nWe counted at least 100 cameras during the 80-minute trip - a trip which involved visiting street-level shops and shopping malls and using several types of transport.\n\nThe government argue that CCTV reduces crime but there is no research on any direct links between a high use of CCTVs and a low crime rate.\n\nPoliticians and police seem to think it is a magic anti-crime system without saying exactly how it helps. CCTV is often a helpful tool in criminal investigations, but having cameras in public and private places does not necessarily prevent crime.\n\nWhy then does the Hospital Authority have 5,400 cameras at its public hospitals or the Legislative Council have 443 CCTV cameras outside? And how will these recordings be used?\n\nPeaceful protesters worry about being arrested, criminals steal CCTV cameras to help them commit crimes, private investigators use CCTV to spy on cheating couples but the biggest worry is the lack of laws to regulate the use of CCTV in public or private areas.",
+      "discussion_task": "Your school principal wants to introduce CCTV cameras to your school. Your class teacher wants you to discuss this topic.",
+      "guiding_questions": [
+        "advantages of CCTV cameras",
+        "disadvantages of CCTV cameras",
+        "what rules there should be about the use of CCTV cameras in school",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Do you think CCTV is a good thing?",
+        "Do you worry about CCTV?",
+        "Do you think CCTV stops crime?",
+        "How will CCTV change in the future?",
+        "Are there some public places where there should be no CCTV?",
+        "Should people be worried about losing privacy?",
+        "Should CCTV recordings be shown on the news?",
+        "Is personal privacy more important than public security?"
+      ]
+    },
+    {
+      "id": "2019_5.2",
+      "year": 2019,
+      "set": 5,
+      "topic": "Studying in Mainland China",
+      "category": "education",
+      "prompt": "This article appeared in a university alumni magazine:\n\nNew HKUST campus in Guangzhou\n\nHong Kong University of Science and Technology (HKUST) will partner with Guangzhou University to set up a campus in the city of Guangzhou that is aimed at taking in up to 6,000 students.\n\nHKUST President Wei Shyy said the university plans to admit the first batch of students in three years’ time.\n\nThe Guangzhou campus will have an area of 1.13 square kilometers — twice the size of its Hong Kong campus — and will be in a desirable location next to the express rail station in Nansha, only 25 minutes by rail from the West Kowloon Station.\n\nThe new campus will provide the necessary room for HKUST to expand and develop beyond the limited facilities of the Hong Kong campus. In the joint-university project, buildings, facilities and laboratories will be funded by the Guangzhou government while HKUST will man the institution.\n\nShyy hopes to foster closer academic ties between the two institutions and says the Guangzhou campus will complement the Hong Kong campus. “Our consideration is not merely to increase the number of students. The more important consideration is to ensure that our main campus and the new campus will work together to make HKUST truly outstanding and become one of the world’s leading universities.”",
+      "discussion_task": "Your school has invited HKUST to give a talk on the new Guangzhou campus to S.6 students. Your group will help to facilitate a Q&A session after the talk.",
+      "guiding_questions": [
+        "why Hong Kong universities want to develop in mainland China",
+        "what problems Hong Kong students may face studying on the Mainland",
+        "what advice to give to students thinking about studying on the Mainland",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Would you like to study in mainland China?",
+        "Why do people want to study in mainland China?",
+        "What are the advantages of studying in mainland China?",
+        "What can students learn from studying in mainland China?",
+        "Will studying in mainland China become more popular?",
+        "Is studying outside Hong Kong beneficial?",
+        "Should more Hong Kong institutions expand to the Mainland?",
+        "What are the problems of developing closer academic ties with mainland institutions?"
+      ]
+    },
+    {
+      "id": "2019_5.3",
+      "year": 2019,
+      "set": 5,
+      "topic": "Space Travel",
+      "category": "technology",
+      "prompt": "This article appeared in a UK newspaper:\n\nELON MUSK AND JAPANESE BILLIONAIRE TO SEND EIGHT ARTISTS TO THE MOON\n‘I did not want to have such a fantastic experience by myself*\n\nElon Musk’s rocket company SpaceX is sending a Japanese billionaire and eight artists on the first private trip around the moon. Japanese billionaire Yusaku Maezawa will pay for himself and between six and eight creative people like film directors, poets and painters to take the week-long trip. He hopes it will become a major international event. He is set to make the trip in 2023, and he will fill the rocket with a range of different artists from Earth.\n\nMr Maezawa, 42, said he wants his guests for the lunar orbit “to see the moon up close, and the Earth in full view, and create work to reflect their experience.” Mr Musk said the trip will cost “a lot of money”, but declined to disclose the exact amount. Such missions are thought to cost at least US$150 million. “I did not want to have such a fantastic experience by myself,” said Mr Maezawa. “I wish to create amazing works of art for humankind.”\n\nHe didn’t immediately say who will be on his guest list for the spaceflight. The mission will not involve a lunar landing. Space tourism began in 2001 when California businessman Dennis Tito paid for a journey on a Russian rocket to the International Space Station. SpaceX already has a long list of firsts, with its sights ultimately set on Mars.",
+      "discussion_task": "Your English teacher has asked your class to write an essay entitled: ‘Space travel is a good use of money.’\nYou have been asked to discuss this topic in groups first.",
+      "guiding_questions": [
+        "why people are so interested in space travel",
+        "whether space tourism will become popular",
+        "whether there are better ways to spend money",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Are you interested in space travel?",
+        "Would you like to be a space tourist?",
+        "Will people live on the moon in our lifetime?",
+        "What would be the most enjoyable thing about a space flight?",
+        "Who else should be taken on the space trip?",
+        "What problems will long space journeys cause?",
+        "Should space travel be organised by private companies or by governments?",
+        "What qualities do you need to be a space traveller?"
+      ]
+    },
+    {
+      "id": "2019_6.1",
+      "year": 2019,
+      "set": 6,
+      "topic": "Animal Culling",
+      "category": "environment",
+      "prompt": "This article appeared in a Singaporean newspaper:\n\nTo kill or not to kill\n\nSingapore is at a crossroads in its management of wild monkeys, and to cull or not to cull these native animals has emerged as a key question.\n\nCulling, the selective killing of animals to manage their population, continues to provoke debate amongst people over how best to deal with monkeys as well as stray dogs and wild boar.\n\nComplaints about problems caused by monkeys fell sharply from 1,860 instances in 2013 to just 750 last year after a large number of monkeys were culled by The Veterinary Authority (VA). The VA killed about 570 monkeys, about a third of the estimated population during that period. The VA maintains that it only culls animals as a last resort. It has also explained that moving the monkeys is not feasible as that simply transfers the problem from one area to another.\n\nBut animal welfare groups in Singapore believe the success of campaigns to get people to stop feeding the monkeys has helped reduce the number of complaints about monkeys, not the culls. They also suggest the use of birth control on females would further help the situation. The government has stressed that birth control can only be part of a wider programme. In Hong Kong, for instance, planting fruit trees to provide more food for monkeys has reduced the number of such complaints.\n\nThe government must now decide if it is to embark on another round of culling wild monkeys to alleviate the problem further.\n\nYou are in a school debating club. The next debate will be: ‘Selective killing should not be used to control animal numbers in Hong Kong.’",
+      "discussion_task": "Your group is meeting to discuss this question.",
+      "guiding_questions": [
+        "why governments use selective killing to control animal numbers",
+        "other methods of controlling animal numbers",
+        "whether or not you support culling",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Are you an animal lover?",
+        "What wild animal would you like to see?",
+        "How do wild animals cause problems in Hong Kong?",
+        "What is the best way to control the number of monkeys in Hong Kong?",
+        "Why do people feed wild animals such as monkeys?",
+        "Do you think most Hong Kong people are animal lovers?",
+        "What animals are the most troublesome in Hong Kong?",
+        "Do people sometimes pay too much attention to animal welfare?"
+      ]
+    },
+    {
+      "id": "2019_6.2",
+      "year": 2019,
+      "set": 6,
+      "topic": "Translation Apps",
+      "category": "technology",
+      "prompt": "This blog appeared on the author’s personal webpage:\n\nTranslation Apps\n\nOn a recent trip to Japan I was amazed to see hotel staff in the hotel I was staying at using what turned out to be a translation gadget. The reception staff wore them around their neck to translate questions and answers from Japanese into Chinese and English so that they could communicate with tourists successfully even though they only spoke Japanese. The fast and accurate translation greatly improved our trip as there were no miscommunications and all the staff could quickly answer any problems we had. Although at times the translation was a little bit strange, it was never too bad to understand.\n\nTranslation apps and machines such as Google Translate are developing so fast that they are now able to do many tasks in both written and spoken translation. While I understand that they are still not able to do complicated translations of literature and legal documents, they are already effective in many areas of business and tourism. Westerners in China often use translation apps to help understand menus.\n\nI am sure that translation devices will continue to develop and soon will be able to translate from Chinese to English more effectively than most university graduates. This raises the question of whether or not we need to invest so much time and money in learning foreign languages at all.\n\nWhy should Hongkongers spend 15 or 16 years learning English or Putonghua if they can buy a cheap app that can help them communicate even more accurately?",
+      "discussion_task": "Your ICT class is discussing how technology is changing the world. Your group has been asked to discuss translation devices.",
+      "guiding_questions": [
+        "the advantages and disadvantages of using translation devices",
+        "whether translation devices should be allowed at school",
+        "whether learning languages is still important",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "What language would you like to learn?",
+        "Have you ever used a translation app?",
+        "Is it fun speaking a foreign language?",
+        "Are translation apps easy to use?",
+        "Who do you think will benefit from translation apps?",
+        "Will fewer people learn foreign languages in future?",
+        "Why are some people better at learning languages than others?",
+        "Do you worry about technology becoming too essential?"
+      ]
+    },
+    {
+      "id": "2019_6.3",
+      "year": 2019,
+      "set": 6,
+      "topic": "Selfie Safety",
+      "category": "technology",
+      "prompt": "This article appeared on a travel blog:\n\nTaking selfies is becoming more dangerous, study finds\n\nThe next time you are standing at the top of a waterfall, take care when you have the urge to snap a quick selfie. It could be the last thing you do. More than 250 people worldwide have died taking selfies in the last six years, according to a new study.\n\nResearchers found the leading cause of selfie-related deaths to be drowning, followed by incidents involving transport. For example, falling from a cliff into the sea below or taking a selfie in front of a train. Other causes of selfie-related deaths are taking photos with live animals. A German woman was recently killed while taking a selfie with an elephant.\n\nThe report noted that while the simple act of taking a selfie isn’t dangerous in itself, the problem arises when people take risks while trying to get that perfect shot. It also pointed out how many of the selfie-related deaths involved young people. More than 85 per cent of the victims were between the ages of 10 and 30. It was difficult to confirm the exact number of people seriously injured or needing medical help, but the researchers believed it was extremely high and growing every year.\n\nSelfie-related deaths have now become a serious safety concern.\n\nYou are a member of the school photography society.",
+      "discussion_task": "Your group has been asked to discuss problems caused by selfies.",
+      "guiding_questions": [
+        "why selfies are so popular",
+        "the dangers caused by taking selfies",
+        "why people are willing to take such risks",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Do people take too many selfies?",
+        "What are interesting places to take selfies in Hong Kong?",
+        "Is it only young people who like taking selfies?",
+        "Will selfies remain a popular trend?",
+        "Do you think no-selfie zones will be introduced in the future?",
+        "Do you think no-selfie zones will be effective?",
+        "Apart from the risk of injury, what other problems do selfies cause?",
+        "What makes a good selfie?"
+      ]
+    },
+    {
+      "id": "2019_7.1",
+      "year": 2019,
+      "set": 7,
+      "topic": "Hong Kong Local Culture (Yuenyeung)",
+      "category": "social_issues",
+      "prompt": "This press release was issued by the Hong Kong Tourism Board:\n\nA Hong Kong Drink\n\nThe Tourism Board is holding a competition to find an English name for a well-known Hong Kong drink. The winners will receive two free annual passes for Ocean Park.\n\nThe special drink, a mix of tea and coffee called Yuenyeung (sometimes written Yinyeung, or Yinyong) is made of a mixture of 30% coffee and 70% Hong Kong-style milk tea, it can be served hot or cold. The name Yuenyeung refers to mandarin ducks, a symbol of love in Chinese culture.\n\nWong King Hei of the Tourism Board said, “Around the world, countries, regions and cities are closely linked to their local drinks. America has Coca-Cola, France has red wine and Taiwan has bubble tea. It would be great to have a famous Hong Kong drink.”\n\n“It is well known to Hongkongers, with regular competitions among restaurants to see who makes the best drink. Tourists are less familiar with it,” added restaurant owner Paul Mak. The Tourism Board wants to promote the drink to both local Hongkongers and tourists to show an important part of Hong Kong culture. However, currently it has no suitable English name so it is difficult to promote the drink and encourage tourists to try it.\n\nThe following names have been used in the past:\n\n1. Hong Kong Tea\n2. The Hongkongers’ Drink\n3. Kowloon Coffee\n\nWhilst each of these holds a certain charm, the Tourism Board now wants to find an English name for the drink for the twenty first century.",
+      "discussion_task": "Your class teacher has asked your group to think of a name that could better promote the drink.",
+      "guiding_questions": [
+        "a suitable name for the drink",
+        "why this name would be suitable",
+        "how else the government could promote the drink",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "What is your favourite drink?",
+        "Do you prefer tea or coffee?",
+        "What drinks are most popular with young people?",
+        "Do older and younger people enjoy the same type of drinks?",
+        "What is the best local Hong Kong food for tourists to try?",
+        "Do you think tourists would enjoy this special Hong Kong drink?",
+        "What other parts of Hong Kong culture should be promoted?",
+        "Do you ever choose a product because it has an interesting name?"
+      ]
+    },
+    {
+      "id": "2019_7.2",
+      "year": 2019,
+      "set": 7,
+      "topic": "E-payments and Tradition",
+      "category": "technology",
+      "prompt": "This letter to the editor appeared in a local newspaper:\n\nOld lai see & New lai see\n\nE-payment is becoming ever more popular in Hong Kong, and is even used in the traditional wet markets, as most customers find it convenient. After 20 years Octopus no longer has a monopoly, with rivals such as Alipay and Apple Pay competing for a share of the pie.\n\nAlthough technology definitely enhances our quality of life, in some areas traditional money is still important. For example, can an electronic red packet really convey the same warmth and feeling as a real lai see (or red packets) full of new bank notes? Is giving new notes still a must for lai see?\n\nWhatever you yourself feel about these questions, the change is already well underway in China. The United Overseas Bank found four out of five people in mainland China gave digital lai see this year. The traditional values of the Lunar New Year would seem to be being replaced by new habits in the digital era.\n\nTo me, and to many people of my generation, the Lunar New Year should be about fireworks, good food, visits to parents and relatives, New Year greetings and real money lai see gifts. Family reunions should be given top priority as people celebrate, but young people are starting to see it differently and the use of electronic lai see is just another example of their indifferent attitude towards the spring festival and traditional values in general.\n\nIvy Fung, Yau Yat Chuen\n\nYou have been asked to write an essay titled: “Are Hongkongers open to change?”",
+      "discussion_task": "Your group has been asked to discuss the use of e-payments as lai see.",
+      "guiding_questions": [
+        "why people are using e-payments for lai see",
+        "whether real money will remain popular",
+        "what other changes to the Lunar New Year people might dislike",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Is electronic lai see popular in Hong Kong?",
+        "Have you received any electronic lai see?",
+        "Would you prefer to receive electronic lai see or a real lai see?",
+        "Why are e-payments not popular in Hong Kong?",
+        "Is giving lai see old-fashioned?",
+        "Why do you think e-payment is used so widely in China?",
+        "What does giving lai see show about a person?",
+        "Is technology making personal relationships less close?"
+      ]
+    },
+    {
+      "id": "2019_7.3",
+      "year": 2019,
+      "set": 7,
+      "topic": "Wealth Inequality",
+      "category": "social_issues",
+      "prompt": "This article appeared in a local newspaper:\n\nInequality in Hong Kong\n\nThe household income distribution report released on Friday shows that Hong Kong’s wealth gap has widened and Hong Kong now has one of the greatest wealth gaps in the world. Although the city’s overall wealth has increased dramatically, working families and individuals have not benefited from it.\n\nThe difference in wealth between rich and poor can be measured by the Gini co-efficient, where zero represents a society with perfect equality. In this measure, the higher the Gini co-efficient, the greater the wealth gap. Table 1 shows that Hong Kong has a Gini score of 0.54, which represents extreme inequality.\n\nTable 1 Gini co-efficient for five countries and regions\nGini Rating\nHK:0.54 Japan:0.34 Canada:0.33 USA:0.45 China:0.46\n\nAnnouncing the report, Leslie Tang Wai-kong highlighted the fact that the richest 10 per cent of households in Hong Kong have a monthly income of HK$112,450— 44 times more than the poorest 10 per cent, who make an average of HK$2,560. In particular, the report shows that Hong Kong is unusual because of the high number of very poor elderly people.\n\nDeveloped countries such as Japan (0.34) and Canada (0.33) are far more equal. The report details possible reasons for this including policies such as a high minimum wage, poverty reduction targets, pensions, controlling rent and higher tax on wealthy citizens.",
+      "discussion_task": "Your teacher has asked you to discuss inequality in Hong Kong. He has asked your group to suggest ways to help reduce the inequality in Hong Kong.",
+      "guiding_questions": [
+        "whether Hong Kong really is an unequal society",
+        "why unequal societies may have problems",
+        "policies that would make Hong Kong a more equal society",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Do you like living in Hong Kong?",
+        "Do poor people need more help in Hong Kong?",
+        "Do people worry about Hong Kong being unequal?",
+        "Does everyone in Hong Kong have an equal chance to be successful?",
+        "Is Hong Kong a fair society?",
+        "Do you think wealth inequality is an important issue?",
+        "Would you like to live in a perfectly equal society?",
+        "Are unequal societies unfair societies?"
+      ]
+    },
+    {
+      "id": "2019_8.1",
+      "year": 2019,
+      "set": 8,
+      "topic": "Co-living",
+      "category": "social_issues",
+      "prompt": "This article appeared in a property magazine:\n\nCo-living\n\nCo-living is the latest trend to hit Hong Kong’s property market. In a co-living building, tenants usually have their own bedroom but share the kitchen, bathrooms and living areas. It can be substantially cheaper than normal renting and has the added potential benefit of fostering a community spirit. We went to Weave, a co-living space in Prince Edward, to find out more about it.\n\nThe 13-storey Weave feels like a university hall of residence, but more grown-up.\n\nThe first two floors of the building are taken up by a restaurant. There is also a games area. On the third floor is the kitchen and living area, which includes a reading corner, a gym, some sofas and a TV — perfect for group movie nights. There are also vending machines around the room for late-night needs.\n\nThe rest of the floors have bedrooms, some shared and some private. Shared rooms are around 250 square feet and can sleep four people. They also have a bathroom. These rooms are the least expensive, at around HK$7,200 per month. Standard rooms are for one person and have their own bathroom, but they are only around 100 square feet.\n\nFinding somewhere to live in Hong Kong that is both comfortable and affordable is a real challenge, and not everyone can commit to a long-term contract. Co-living takes away this pressure, while also ensuring that you have a clean, safe, and well-maintained place to sleep, eat and relax.",
+      "discussion_task": "Your class has been asked by your teacher to look at alternatives that young people have to living at home.\nYour group has been asked to discuss co-living.",
+      "guiding_questions": [
+        "the advantages of co-living",
+        "the disadvantages of co-living",
+        "what rules you think co-living accommodation should have",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Would you enjoy co-living?",
+        "What would you find difficult about co-living?",
+        "Do you think that co-living will become popular?",
+        "Why is having some private space important?",
+        "What would your dream accommodation be?",
+        "Why do some people prefer to live by themselves?",
+        "What might you learn from co-living?",
+        "Should the government encourage co-living?"
+      ]
+    },
+    {
+      "id": "2019_8.2",
+      "year": 2019,
+      "set": 8,
+      "topic": "Homelessness",
+      "category": "social_issues",
+      "prompt": "This editorial appeared in a local newspaper:\n\nMcSleepers drive crisis home\n\nWe all know that Hong Kong has a housing crisis, but did you know the number of “McSleepers” -— those sleeping overnight at McDonald’s — has increased nearly 600 percent over the past five years?\n\nA recent survey found 334 “McSleepers” sleeping overnight at McDonald’s 24-hour restaurants, and that number is most likely only a small part of the total.\n\nI can’t help wondering whether the homeless would have been thrown out onto the streets if they had curled up for a nap in other restaurants or in air-conditioned places. So staff at the McDonald's should be praised for showing kindness to people without a place to sleep at night.\n\nAccording to the survey, reasons why people choose to sleep at McDonald’s include staying in an air-conditioned environment, security and the use of bathrooms. Some “McSleepers” complain that the government is not doing enough to reduce homelessness. They claim that the conditions in the homeless shelters provided by the government are so bad that they actually prefer McDonald’s to having to return to such shelters.\n\nThe question is how long this can go on. If the number of “McSleepers” grows, sooner or later McDonald’s will have to ask if it can still manage to provide a safe place for these people to sleep. Those sleeping in their restaurants take up space, often make customers feel uncomfortable and at times make their restaurants difficult to keep clean.",
+      "discussion_task": "Your class is doing a project on homeless people in Hong Kong. Your group has been asked to discuss the issue of the homeless sleeping in 24-hour McDonald’s restaurants.",
+      "guiding_questions": [
+        "what problems homeless people face",
+        "why they go to McDonald’s",
+        "how this affects McDonald’s",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Do you like to go to McDonald’s?",
+        "Do you ever visit McDonald’s late at night?",
+        "Where else do homeless people sleep?",
+        "Do you think McDonald’s is a caring company?",
+        "What would be the most difficult thing about sleeping in McDonald’s?",
+        "What types of people are more likely to be homeless?",
+        "Should private companies do more to help solve the problem of homelessness?",
+        "Why does homelessness exist in wealthy cities?"
+      ]
+    },
+    {
+      "id": "2019_8.3",
+      "year": 2019,
+      "set": 8,
+      "topic": "Age Limits for Leaders",
+      "category": "social_issues",
+      "prompt": "This article appeared in an international newspaper:\n\nShould there be an age limit for political leaders?\n\nThe US President Donald Trump is 71 years old. Dr. Mahathir became the Prime Minister of Malaysia at 92. Isn’t it time we considered age limits to make room for a younger generation of leaders?\n\nThere certainly are some benefits to having older political leaders: they can draw on the wisdom and life experience gained over decades of high-level decision-making. But there’s also no doubt that being a world leader includes work and travel requirements that can be physically demanding and difficult for some older people to handle, not to mention the mental attentiveness that is needed to stay focused.\n\nPerhaps the biggest issue that surrounds elderly leaders is whether or not they are able to understand the modern world. Some have questioned how people who grew up decades ago can possibly understand young people today. Younger leaders, like French President Emmanuel Macron at 39, are equipped with a more personal understanding of the current issues and some might say are more able to guide the new generation in the coming years.\n\nWith an aging population, this problem is becoming increasingly recognized, and in some countries there have been attempts to introduce legal age limits for heads of state or government. France recommended banning politicians over 70 from standing for election but the idea was rejected because it might be considered discrimination against someone based on their age.",
+      "discussion_task": "Your school is planning on holding a summer course called ‘Developing Young Hong Kong Leaders’. Your class has been asked to discuss this topic.",
+      "guiding_questions": [
+        "what skills a political leader needs in today’s society",
+        "the strengths and limitations of older leaders",
+        "whether age should be a factor in choosing a leader",
+        "anything else you think is important"
+      ],
+      "part_b_questions": [
+        "Would you like to be a leader?",
+        "Would you prefer to have a younger or an older leader?",
+        "What is the biggest advantage younger leaders have?",
+        "Should older leaders be respected because of their age?",
+        "Do older leaders understand young people?",
+        "How important is life experience for leaders?",
+        "Should there be age limits on leaders?",
+        "Does society discriminate against the elderly?"
+      ]
+    }
+  ]
+}

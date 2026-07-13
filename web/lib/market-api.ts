@@ -8,6 +8,10 @@ import type {
   Flashcard,
   GenerateEnglishPaperRequest,
   GradeResult,
+  OralFeedbackResult,
+  OralMessage,
+  OralTopicResponse,
+  OralTurnRequest,
   Question,
   SMRating,
   StepCheckRequest,
@@ -196,6 +200,99 @@ export async function generateEnglishPaper(
     }
   }
   throw new Error("Stream ended without a paper");
+}
+
+// ── HKDSE English Oral Practice ────────────────────────────────────────────
+
+export async function getRandomOralTopic(
+  category: string
+): Promise<OralTopicResponse> {
+  const res = await fetch(apiUrl("/api/v1/hkdse/english/oral-topics"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ category }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data as OralTopicResponse;
+}
+
+export type OralTurnCallbacks = {
+  onChunk: (text: string) => void;
+  onTurnEnd: (event: {
+    speaker: string;
+    content: string;
+    next_speaker: string;
+    continues: boolean;
+    phase: string | null;
+  }) => void;
+  onError: (message: string) => void;
+};
+
+export async function takeOralTurn(
+  req: OralTurnRequest,
+  callbacks: OralTurnCallbacks
+): Promise<void> {
+  const res = await fetch(apiUrl("/api/v1/hkdse/english/oral-turn"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+
+  if (!res.ok || !res.body) {
+    callbacks.onError(`Server error ${res.status}`);
+    return;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const event = JSON.parse(line);
+
+        if (event.type === "chunk") {
+          callbacks.onChunk(event.content);
+        } else if (event.type === "turn_end") {
+          callbacks.onTurnEnd({
+            speaker: event.speaker,
+            content: event.content,
+            next_speaker: event.next_speaker,
+            continues: event.continues,
+            phase: event.phase ?? null,
+          });
+        } else if (event.type === "error") {
+          callbacks.onError(event.message);
+          return;
+        }
+      }
+    }
+  } catch (e: unknown) {
+    callbacks.onError(e instanceof Error ? e.message : "Stream parse failed");
+  }
+}
+
+export async function getOralFeedback(
+  req: OralTurnRequest
+): Promise<OralFeedbackResult> {
+  const res = await fetch(apiUrl("/api/v1/hkdse/english/oral-feedback"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data as OralFeedbackResult;
 }
 
 // ── HKDSE Maths ───────────────────────────────────────────────────────────────

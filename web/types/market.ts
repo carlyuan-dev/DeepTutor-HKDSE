@@ -148,6 +148,45 @@ export interface StepCheckResult {
   summary: string;
 }
 
+// ── HKDSE English Oral Practice ────────────────────────────────────────────────
+
+export type OralTopic = "education" | "technology" | "environment" | "social_issues";
+
+export interface OralMessage {
+  speaker: "candidate_a" | "candidate_b" | "candidate_c" | "candidate_d" | "examiner";
+  content: string;
+}
+
+export interface OralTurnRequest {
+  topic_id: string;
+  history: OralMessage[];
+  phase: "discussion" | "individual_response";
+}
+
+export interface OralTopicResponse {
+  topic_id: string;
+  topic: string;
+  article: string;
+  discussion_task: string;
+  guiding_questions: string[];
+  part_b_questions: string[];
+  category: string;
+}
+
+export interface OralFeedbackResult {
+  communication: DimensionScore;
+  language: DimensionScore;
+  ideas_organisation: DimensionScore;
+  pronunciation_delivery: { score: number; max_score: number };
+  total_score: number;
+  max_score: number;
+  percentage: number;
+  strengths: string[];
+  improvements: string[];
+  overall_comment: string;
+  model_excerpt: string;
+}
+
 // ── localStorage keys ─────────────────────────────────────────────────────────
 
 export const STORAGE_KEYS = {

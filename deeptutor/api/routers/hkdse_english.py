@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import random
 import traceback
 from typing import Any
 
@@ -12,6 +14,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from deeptutor.services.llm import complete as llm_complete
+from deeptutor.services.llm import stream as llm_stream
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -295,4 +298,435 @@ async def integrated_skills_feedback(req: IntegratedSkillsRequest) -> dict[str, 
 
     except Exception as e:
         logger.error(f"Integrated Skills error: {e}\n{traceback.format_exc()}")
+        return {"error": str(e)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# F4 — Oral Practice (Paper 4)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_ORAL_TOPICS_CACHE: list[dict[str, Any]] | None = None
+
+
+def _load_oral_topics() -> list[dict[str, Any]]:
+    """Load DSE Paper 4 topics from JSON. Caches after first load."""
+    global _ORAL_TOPICS_CACHE
+    if _ORAL_TOPICS_CACHE is not None:
+        return _ORAL_TOPICS_CACHE
+    path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "oral_topics.json")
+    path = os.path.abspath(path)
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        _ORAL_TOPICS_CACHE = data.get("topics", [])
+        logger.info("Loaded %d oral topics from %s", len(_ORAL_TOPICS_CACHE), path)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        logger.warning("Failed to load oral topics from %s: %s. Using fallback.", path, e)
+        _ORAL_TOPICS_CACHE = []
+    return _ORAL_TOPICS_CACHE
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# F4a — Random Topic Selection
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class OralTopicRequest(BaseModel):
+    category: str
+
+
+_CATEGORY_TOPIC_LABELS: dict[str, str] = {
+    "education": "Education",
+    "technology": "Technology",
+    "environment": "Environment",
+    "social_issues": "Social Issues & Culture",
+}
+
+
+@router.post("/oral-topics")
+async def oral_topics(req: OralTopicRequest) -> dict[str, Any]:
+    """Select a random topic from the given category."""
+    if req.category not in _CATEGORY_TOPIC_LABELS:
+        return {"error": f"Invalid category: {req.category}"}
+
+    topics = _load_oral_topics()
+    candidates = [t for t in topics if t.get("category") == req.category]
+
+    if not candidates:
+        return {
+            "topic_id": f"fallback_{req.category}",
+            "topic": _CATEGORY_TOPIC_LABELS.get(req.category, req.category),
+            "article": "",
+            "discussion_task": "",
+            "guiding_questions": [],
+            "part_b_questions": [
+                "What are your views on this topic?",
+                "Can you share a personal experience?",
+            ],
+            "category": req.category,
+        }
+
+    chosen = random.choice(candidates)
+    return {
+        "topic_id": chosen.get("id", f"{req.category}_random"),
+        "topic": chosen.get("topic", ""),
+        "article": chosen.get("prompt", ""),
+        "discussion_task": chosen.get("discussion_task", ""),
+        "guiding_questions": chosen.get("guiding_questions", []),
+        "part_b_questions": chosen.get("part_b_questions", []),
+        "category": req.category,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# F4b — Discussion Turns
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class OralTurnRequest(BaseModel):
+    topic_id: str = ""
+    history: list[dict[str, str]] = []
+    phase: str = "discussion"  # discussion | individual_response
+
+
+def _format_topic_for_prompt(topic_id: str) -> str:
+    """Look up a topic by ID and format it for the LLM prompt."""
+    topics = _load_oral_topics()
+    for t in topics:
+        if t.get("id") == topic_id:
+            parts = [f"Discussion Topic: {t.get('topic', '')}"]
+            article = (t.get("prompt") or "").strip()
+            if article:
+                parts.append(f"\nBackground Article:\n{article}")
+            task = (t.get("discussion_task") or "").strip()
+            if task:
+                parts.append(f"\nDiscussion Task:\n{task}")
+            questions = t.get("guiding_questions", [])
+            if questions:
+                parts.append("\nGuiding Questions:")
+                for q in questions:
+                    parts.append(f"  - {q}")
+            return "\n".join(parts)
+    return ""
+
+
+_PERSONALITY_MAP = {
+    "candidate_a": "confident and direct",
+    "candidate_b": "thoughtful and analytical",
+    "candidate_c": "supportive and agreeable",
+}
+
+_USER_TURN_THRESHOLD = 5
+_MAX_CONSECUTIVE_AI = 2
+
+
+def _build_oral_system_prompt() -> str:
+    return (
+        "You help simulate an HKDSE English Paper 4 group discussion (Speaking).\n\n"
+        "IMPORTANT: You will be told which role to play in each turn. "
+        "Your output must be ONLY that person's spoken words — "
+        "no labels, no headers, no explanations, no formatting.\n\n"
+        "RULES:\n"
+        "- Speak naturally, 30-70 words, like a real conversation.\n"
+        "- Do NOT output anything except the speech itself.\n"
+        "- Do NOT say 'Candidate A:', 'I think', or similar framing."
+    )
+
+
+def _build_part_a_prompt(speaker: str, req: OralTurnRequest) -> str:
+    """Build prompt for a Part A group discussion turn. Speaker is pre-determined by backend."""
+    topic_context = _format_topic_for_prompt(req.topic_id) if req.topic_id else ""
+    personality = _PERSONALITY_MAP.get(speaker, "natural")
+
+    parts = []
+    if topic_context:
+        parts.append(f"CONTEXT:\n{topic_context}")
+
+    if not req.history:
+        parts.append(
+            f"You are {speaker.replace('_', ' ').title()} — a {personality} student. "
+            "This is the very first turn. Open the discussion by introducing the topic "
+            "and sharing your first opinion. Speak naturally in 30-70 words."
+        )
+    else:
+        parts.append("CONVERSATION SO FAR:")
+        for msg in req.history:
+            label = msg["speaker"].replace("_", " ").title()
+            parts.append(f"{label}: {msg['content']}")
+
+        last_msg = req.history[-1]
+        parts.append(
+            f"\nYou are {speaker.replace('_', ' ').title()} — a {personality} student. "
+            f"The user just said: \"{last_msg['content']}\"\n\n"
+            "Acknowledge what the last person said, then add your own point. "
+            "30-70 words, spoken English. Respond naturally to the discussion."
+        )
+
+    return "\n\n".join(parts)
+
+
+def _build_examiner_prompt(req: OralTurnRequest) -> str:
+    """Build prompt for Part B — examiner asks the student a follow-up question."""
+    topic_context = _format_topic_for_prompt(req.topic_id) if req.topic_id else ""
+
+    parts = []
+    if topic_context:
+        parts.append(f"CONTEXT:\n{topic_context}")
+    parts.append("GROUP DISCUSSION SO FAR:")
+    for msg in req.history:
+        label = msg["speaker"].replace("_", " ").title()
+        parts.append(f"{label}: {msg['content']}")
+
+    parts.append(
+        "\nYou are an HKDSE English examiner. Based on the group discussion above, "
+        "ask the student ONE follow-up question about the topic. "
+        "The question should invite the student to explain their personal views or experiences. "
+        "Output ONLY the question text — no labels, no greetings, no commentary."
+    )
+
+    return "\n\n".join(parts)
+
+
+def _build_examiner_feedback_prompt(req: OralTurnRequest) -> str:
+    """Build prompt for the examiner's brief wrap-up after user answers Part B."""
+    topic_context = _format_topic_for_prompt(req.topic_id) if req.topic_id else ""
+
+    parts = []
+    if topic_context:
+        parts.append(f"CONTEXT:\n{topic_context}")
+    parts.append("CONVERSATION SO FAR:")
+    for msg in req.history:
+        label = msg["speaker"].replace("_", " ").title()
+        parts.append(f"{label}: {msg['content']}")
+
+    last_msg = req.history[-1]
+    parts.append(
+        f"\nYou are an HKDSE English examiner. "
+        f"The student just answered your follow-up question: \"{last_msg['content']}\"\n\n"
+        "Briefly acknowledge the student's answer (1-2 sentences). "
+        "Then say the discussion is complete. "
+        "Output ONLY the spoken words — no labels."
+    )
+
+    return "\n\n".join(parts)
+
+
+def _count_user_turns(history: list[dict]) -> int:
+    """Count how many times the user has spoken."""
+    return sum(1 for m in history if m.get("speaker") == "candidate_d")
+
+
+def _get_last_ai_speaker(history: list[dict]) -> str | None:
+    """Get the last AI speaker from history end."""
+    for msg in reversed(history):
+        s = msg.get("speaker", "")
+        if s in ("candidate_a", "candidate_b", "candidate_c"):
+            return s
+    return None
+
+
+def _count_consecutive_ai(history: list[dict]) -> int:
+    """Count consecutive AI turns at the end of history."""
+    count = 0
+    for msg in reversed(history):
+        s = msg.get("speaker", "")
+        if s in ("candidate_a", "candidate_b", "candidate_c"):
+            count += 1
+        else:
+            break
+    return count
+
+
+def _pick_next_ai_speaker(history: list[dict]) -> str:
+    """Pick next AI speaker via weighted random, favoring less-spoken candidates."""
+    counts = {"candidate_a": 0, "candidate_b": 0, "candidate_c": 0}
+    for msg in history:
+        s = msg.get("speaker", "")
+        if s in counts:
+            counts[s] += 1
+
+    last_ai = _get_last_ai_speaker(history)
+
+    # Don't repeat the same speaker
+    available = {k: v for k, v in counts.items() if k != last_ai}
+    if not available:
+        available = dict(counts)
+
+    # Weight: higher = less-spoken
+    max_count = max(available.values())
+    weights = {k: max(1, max_count - v + 1) for k, v in available.items()}
+
+    speakers = list(weights.keys())
+    speaker_weights = [weights[k] for k in speakers]
+    return random.choices(speakers, weights=speaker_weights, k=1)[0]
+
+
+def _examiner_has_spoken(history: list[dict]) -> bool:
+    """Check if the examiner has asked a Part B question."""
+    return any(m.get("speaker") == "examiner" for m in history)
+
+
+@router.post("/oral-turn")
+async def oral_turn(req: OralTurnRequest):
+    """Generate the next AI turn.
+
+    Backend determines ALL structural metadata (speaker, continues, phase)
+    before calling the LLM. The LLM only outputs spoken text — no headers.
+    """
+
+    user_turns = _count_user_turns(req.history)
+
+    # ── Determine phase and speaker BEFORE calling LLM ──────────────
+    if user_turns >= _USER_TURN_THRESHOLD and not _examiner_has_spoken(req.history):
+        # ── Transition: Part A done → generate Part B examiner question ──
+        speaker = "examiner"
+        continues = False
+        next_phase = "individual_response"
+        next_speaker = "candidate_d"  # user answers next
+        prompt = _build_examiner_prompt(req)
+        system_prompt = _build_oral_system_prompt()
+
+    elif _examiner_has_spoken(req.history):
+        # ── Part B completed → brief wrap-up, then feedback ──
+        speaker = "examiner"
+        continues = False
+        next_phase = "feedback"
+        next_speaker = "feedback"
+        prompt = _build_examiner_feedback_prompt(req)
+        system_prompt = _build_oral_system_prompt()
+
+    else:
+        # ── Part A normal discussion turn ──
+        speaker = _pick_next_ai_speaker(req.history)
+        con_ai = _count_consecutive_ai(req.history)
+        continues = con_ai < _MAX_CONSECUTIVE_AI - 1  # True until 1 before limit
+
+        # Next phase: stay in discussion unless threshold reached
+        next_phase = "discussion"
+        next_speaker = "candidate_d"  # user's turn (default)
+
+        if continues:
+            # Another AI follows
+            if speaker == "candidate_a":
+                next_speaker = "candidate_b"
+            elif speaker == "candidate_b":
+                next_speaker = "candidate_c"
+            else:
+                next_speaker = "candidate_a"
+        else:
+            next_speaker = "candidate_d"
+
+        prompt = _build_part_a_prompt(speaker, req)
+        system_prompt = _build_oral_system_prompt()
+
+    # ── Stream the LLM output (pure speech, no parsing needed) ──────
+    async def _stream():
+        try:
+            yield json.dumps({"type": "turn_start"}) + "\n"
+
+            content_chunks: list[str] = []
+            async for chunk in llm_stream(prompt, system_prompt=system_prompt):
+                content_chunks.append(chunk)
+                yield json.dumps({"type": "chunk", "content": chunk}) + "\n"
+
+            content = "".join(content_chunks).strip()
+
+            yield json.dumps({
+                "type": "turn_end",
+                "speaker": speaker,
+                "content": content,
+                "next_speaker": next_speaker,
+                "continues": continues,
+                "phase": next_phase,
+            }) + "\n"
+
+        except Exception as e:
+            logger.error(f"Oral turn error: {e}\n{traceback.format_exc()}")
+            yield json.dumps({"type": "error", "message": str(e)}) + "\n"
+
+    return StreamingResponse(_stream(), media_type="application/x-ndjson")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# F4c — Feedback
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_ORAL_FEEDBACK_SCHEMA = {
+    "communication": {"score": 4, "max_score": 7, "comment": ""},
+    "language": {"score": 4, "max_score": 7, "comment": ""},
+    "ideas_organisation": {"score": 4, "max_score": 7, "comment": ""},
+    "pronunciation_delivery": {"score": 0, "max_score": 7},
+    "total_score": 12,
+    "max_score": 28,
+    "percentage": 42.9,
+    "strengths": [],
+    "improvements": [],
+    "overall_comment": "",
+    "model_excerpt": "",
+}
+
+
+def _build_oral_feedback_system_prompt() -> str:
+    return (
+        "You are an HKDSE English Language Paper 4 examiner. "
+        "Evaluate the user's performance in a group discussion "
+        "according to official HKDSE Speaking marking criteria. "
+        "Provide specific references to what the user said. "
+        "Output ONLY valid JSON — no markdown fences."
+    )
+
+
+def _build_oral_feedback_user_prompt(history: list[dict[str, str]], topic_id: str) -> str:
+    topic_context = _format_topic_for_prompt(topic_id) if topic_id else ""
+    conversation = "\n".join(
+        f"{m['speaker'].replace('_', ' ').title()}: {m['content']}"
+        for m in history
+    )
+    context_block = f"\nTopic:\n{topic_context}\n\n" if topic_context else "\n"
+    return (
+        f"Evaluate the user's performance in this HKDSE Paper 4 group discussion.{context_block}"
+        f"Full Conversation:\n{conversation}\n\n"
+        f"HKDSE Paper 4 Speaking Marking Criteria (max 28):\n\n"
+        f"1. Communication Strategies (7 marks):\n"
+        f"   - Initiating, maintaining, and closing discussions\n"
+        f"   - Turn-taking, negotiating meaning, responding appropriately\n\n"
+        f"2. Language (7 marks):\n"
+        f"   - Range and accuracy of vocabulary\n"
+        f"   - Grammatical accuracy and sentence variety\n\n"
+        f"3. Ideas and Organisation (7 marks):\n"
+        f"   - Relevance and depth of ideas\n"
+        f"   - Logical organisation of arguments\n\n"
+        f"4. Pronunciation and Delivery (7 marks) — [Voice feature — mark as 0/7]\n\n"
+        f"Return JSON matching this schema:\n"
+        f"{json.dumps(_ORAL_FEEDBACK_SCHEMA, ensure_ascii=False, indent=2)}"
+    )
+
+
+@router.post("/oral-feedback")
+async def oral_feedback(req: OralTurnRequest) -> dict[str, Any]:
+    """Generate overall feedback for the oral practice session."""
+    try:
+        raw = await llm_complete(
+            _build_oral_feedback_user_prompt(req.history, req.topic_id),
+            system_prompt=_build_oral_feedback_system_prompt(),
+        )
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            raw_lines = cleaned.splitlines()
+            cleaned = "\n".join(raw_lines[1:-1] if raw_lines[-1].strip() == "```" else raw_lines[1:])
+        result: dict[str, Any] = json.loads(cleaned)
+        for dim in ("communication", "language", "ideas_organisation", "pronunciation_delivery"):
+            if dim not in result:
+                result[dim] = {"score": 0, "max_score": 7, "comment": ""}
+        if "total_score" not in result:
+            result["total_score"] = sum(result.get(d, {}).get("score", 0)
+                                        for d in ("communication", "language", "ideas_organisation", "pronunciation_delivery"))
+        result.setdefault("max_score", 28)
+        if "percentage" not in result and result.get("max_score", 0) > 0:
+            result["percentage"] = round(result["total_score"] / result["max_score"] * 100, 1)
+        result.setdefault("strengths", [])
+        result.setdefault("improvements", [])
+        result.setdefault("overall_comment", "")
+        result.setdefault("model_excerpt", "")
+        return result
+    except Exception as e:
+        logger.error(f"Oral feedback error: {e}\n{traceback.format_exc()}")
         return {"error": str(e)}
