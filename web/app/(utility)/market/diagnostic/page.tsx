@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Stethoscope, Loader2 } from "lucide-react";
+import { ArrowLeft, CalendarClock, Loader2, Network, Stethoscope } from "lucide-react";
 import { apiUrl } from "@/lib/api";
 
 type Stage = "config" | "generating" | "quiz" | "grading" | "result" | "error";
@@ -39,6 +39,48 @@ export default function DiagnosticPage() {
   const [result, setResult] = useState<DResult | null>(null);
   const [error, setError] = useState("");
 
+  // Cross-tool pipeline states
+  const [planResult, setPlanResult] = useState<any>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [conceptResult, setConceptResult] = useState<any>(null);
+  const [conceptLoading, setConceptLoading] = useState(false);
+
+  const generatePlan = async () => {
+    if (!result) return;
+    setPlanLoading(true);
+    try {
+      const res = await fetch(apiUrl("/api/v1/market-tools/diagnostic/to-plan"), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject, weak_topics: result.weak_topics, profile: result.profile,
+          days_until_exam: 14, hours_per_day: 2.0, language: i18n.language,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setPlanResult(data);
+    } catch { setPlanResult(null); }
+    setPlanLoading(false);
+  };
+
+  const generateConceptMap = async () => {
+    if (!result) return;
+    setConceptLoading(true);
+    try {
+      const topicSummary = result.profile
+        .filter((p: TopicProfile) => p.mastery < 70)
+        .map((p: TopicProfile) => [p.topic, p.total - p.correct]);
+      const res = await fetch(apiUrl("/api/v1/market-tools/mistake-book/to-concept-map"), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic_summary: topicSummary, subject, language: i18n.language }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setConceptResult(data);
+    } catch { setConceptResult(null); }
+    setConceptLoading(false);
+  };
+
   const generate = async () => {
     setError("");
     setStage("generating");
@@ -73,6 +115,14 @@ export default function DiagnosticPage() {
       if (data.error) throw new Error(data.error);
       setResult(data);
       setStage("result");
+      // Log to teacher dashboard
+      fetch(apiUrl("/api/v1/market-tools/dashboard/log-diagnostic"), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject, score: data.score, total: data.total,
+          percentage: data.percentage, weak_topics: data.weak_topics, profile: data.profile,
+        }),
+      }).catch(() => {});
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t("Grading failed"));
       setStage("error");
@@ -211,13 +261,82 @@ export default function DiagnosticPage() {
               <p className="mt-1 text-sm text-[var(--foreground)]">{result.recommendation}</p>
             </div>
           )}
-          <div className="flex gap-3">
-            <button onClick={() => { setStage("config"); setResult(null); }} className="rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-5 py-2.5 text-sm text-[var(--foreground)] hover:bg-[var(--background)]">
-              {t("New Diagnostic")}
-            </button>
-            <Link href="/market/study-planner" className="rounded-lg bg-indigo-500 px-5 py-2.5 text-sm font-medium text-white hover:opacity-90">
-              {t("Build a Study Plan")}
-            </Link>
+          {/* ── Cross-tool pipeline buttons ── */}
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-3">
+              <button onClick={() => { setStage("config"); setResult(null); setPlanResult(null); setConceptResult(null); }}
+                className="rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-5 py-2.5 text-sm text-[var(--foreground)] hover:bg-[var(--background)]">
+                {t("New Diagnostic")}
+              </button>
+              <button onClick={generatePlan} disabled={planLoading}
+                className={`flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 ${planLoading ? "bg-indigo-400" : "bg-indigo-500"}`}>
+                {planLoading ? <Loader2 size={14} className="animate-spin" /> : <CalendarClock size={14} />}
+                {planLoading ? t("Generating...") : t("一鍵生成複習計劃")}
+              </button>
+              <button onClick={generateConceptMap} disabled={conceptLoading}
+                className={`flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 ${conceptLoading ? "bg-violet-400" : "bg-violet-500"}`}>
+                {conceptLoading ? <Loader2 size={14} className="animate-spin" /> : <Network size={14} />}
+                {conceptLoading ? t("Generating...") : t("弱項概念圖")}
+              </button>
+              <Link href="/market/study-planner"
+                className="rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-5 py-2.5 text-sm text-indigo-400 hover:bg-indigo-500/20">
+                {t("手動制定計劃 →")}
+              </Link>
+            </div>
+
+            {/* Inline study plan result */}
+            {planResult && (
+              <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-5 space-y-3">
+                <p className="text-xs font-medium text-indigo-400">📅 {planResult.diagnostic_summary || "Personalised Study Plan"}</p>
+                {planResult.priority_areas?.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {planResult.priority_areas.map((a: string, i: number) => (
+                      <span key={i} className="rounded-full bg-indigo-500/20 px-2.5 py-1 text-xs text-indigo-400">⭐ {a}</span>
+                    ))}
+                  </div>
+                )}
+                <div className="max-h-60 overflow-y-auto space-y-2">
+                  {planResult.days?.slice(0, 5).map((d: any) => (
+                    <div key={d.day} className="rounded-lg bg-[var(--background)] p-3">
+                      <p className="text-xs font-medium text-[var(--foreground)]">Day {d.day}: {d.focus}</p>
+                      <ul className="mt-1 space-y-0.5">
+                        {d.tasks?.slice(0, 3).map((t: string, i: number) => (
+                          <li key={i} className="text-[11px] text-[var(--muted-foreground)]">· {t}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+                {planResult.days?.length > 5 && (
+                  <p className="text-center text-[10px] text-[var(--muted-foreground)]">... and {planResult.days.length - 5} more days</p>
+                )}
+              </div>
+            )}
+
+            {/* Inline concept map result */}
+            {conceptResult && (
+              <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-5 space-y-3">
+                <p className="text-xs font-medium text-violet-400">🧠 Knowledge Gap Map</p>
+                <p className="text-xs text-[var(--foreground)]">{conceptResult.analysis}</p>
+                {conceptResult.weak_nodes?.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {conceptResult.weak_nodes.map((n: string, i: number) => (
+                      <span key={i} className="rounded-full bg-violet-500/20 px-2.5 py-1 text-xs text-violet-400">🔴 {n}</span>
+                    ))}
+                  </div>
+                )}
+                {conceptResult.prerequisites?.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-[var(--muted-foreground)]">Prerequisite Dependencies:</p>
+                    {conceptResult.prerequisites.map((p: any, i: number) => (
+                      <p key={i} className="text-[11px] text-[var(--foreground)]">
+                        <span className="text-violet-400 font-medium">{p.topic}</span> depends on {p.depends_on?.join(", ")}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

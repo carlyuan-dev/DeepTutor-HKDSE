@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import random
+import statistics
 import traceback
 from typing import Any
 
@@ -203,35 +205,128 @@ Return JSON in this format:
 {json.dumps(schema, ensure_ascii=False, indent=2)}"""
 
 
+# ---------------------------------------------------------------------------
+# Ensemble grading helpers (shared with essay-grade)
+# ---------------------------------------------------------------------------
+
+_EN_AGENT_PERSONAS = {
+    "strict": "strict. Grade conservatively — award high marks only when writing clearly excels.",
+    "lenient": "generous. Give the benefit of the doubt — focus on what the student did well.",
+    "balanced": "fair and balanced. Weigh strengths and weaknesses evenly, following the rubric exactly.",
+}
+
+_ENGLISH_DIMS = ("content", "language", "organisation")
+
+
+async def _en_single_grade(req: EssayGradeRequest, persona: str) -> dict[str, Any]:
+    system_prompt = _build_essay_grade_system_prompt() + (
+        f"\n\nYour grading style is {_EN_AGENT_PERSONAS[persona]}"
+    )
+    raw = await llm_complete(_build_essay_grade_user_prompt(req), system_prompt=system_prompt)
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+    result: dict[str, Any] = json.loads(cleaned)
+    for field in _ENGLISH_DIMS:
+        if field not in result:
+            result[field] = {"score": 0, "max_score": 7, "comment": "Data missing"}
+    return result
+
+
+def _parse_json_en(raw: str) -> dict[str, Any]:
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+    return json.loads(cleaned)
+
+
 @router.post("/essay-grade")
 async def grade_essay(req: EssayGradeRequest) -> dict[str, Any]:
-    """Grade an English essay against HKDSE Paper 2 criteria."""
+    """Grade an English essay — 3-agent ensemble + self-reflection + confidence."""
     try:
-        raw = await llm_complete(
-            _build_essay_grade_user_prompt(req),
-            system_prompt=_build_essay_grade_system_prompt(),
+        # ── Phase 1: 3-agent ensemble grading ──
+        tasks = [_en_single_grade(req, p) for p in ("strict", "lenient", "balanced")]
+        three_results = await asyncio.gather(*tasks)
+
+        dims = _ENGLISH_DIMS
+        aggregated: dict[str, Any] = {}
+        all_confidences = []
+
+        for dim in dims:
+            scores = [s[dim]["score"] for s in three_results]
+            max_s = three_results[0][dim]["max_score"]
+            comments = [s[dim]["comment"] for s in three_results]
+
+            median_score = int(statistics.median(scores))
+            score_range = max(scores) - min(scores)
+            confidence = max(50, round(100 - score_range / max_s * 100))
+            all_confidences.append(confidence)
+
+            median_idx = sorted(range(len(scores)), key=lambda i: abs(scores[i] - median_score))[0]
+            aggregated[dim] = {
+                "score": median_score, "max_score": max_s,
+                "comment": comments[median_idx],
+                "individual_scores": scores, "score_range": score_range, "confidence": confidence,
+            }
+
+        total_median = sum(aggregated[d]["score"] for d in dims)
+        max_total = sum(aggregated[d]["max_score"] for d in dims)
+        overall_confidence = round(statistics.mean(all_confidences))
+
+        balanced = three_results[2]
+        result = {
+            **{d: aggregated[d] for d in dims},
+            "total_score": total_median, "max_score": max_total,
+            "percentage": round(total_median / max_total * 100, 1) if max_total > 0 else 0,
+            "strengths": balanced.get("strengths", []),
+            "improvements": balanced.get("improvements", []),
+            "overall_comment": balanced.get("overall_comment", ""),
+            "annotated_essay": balanced.get("annotated_essay", ""),
+            "ensemble": {
+                "method": "3-agent median",
+                "agents": ["strict", "lenient", "balanced"],
+                "overall_confidence": overall_confidence,
+                "agreement_level": "high" if overall_confidence >= 85 else "moderate" if overall_confidence >= 65 else "low",
+                "confidence_breakdown": {
+                    "overall": overall_confidence,
+                    "interpretation": (
+                        "high agreement among raters — score is reliable"
+                        if overall_confidence >= 85
+                        else "moderate agreement — consider reviewing borderline items"
+                        if overall_confidence >= 65
+                        else "low agreement — manual review recommended"
+                    ),
+                },
+            },
+        }
+
+        # ── Phase 2: Self-reflection ──
+        reflect_prompt = (
+            f"You gave this essay: Content={result['content']['score']}/7, "
+            f"Language={result['language']['score']}/7, "
+            f"Organisation={result['organisation']['score']}/7.\n"
+            "Re-examine your grading. Did you miss any strengths or weaknesses? "
+            "Output JSON: {\"score_adjusted\": true/false, "
+            "\"reflection_note\": \"<one-sentence reflection>\", "
+            "\"revised_overall_comment\": \"<or empty>\"}"
         )
-
-        cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            lines = cleaned.splitlines()
-            cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-
-        result: dict[str, Any] = json.loads(cleaned)
-
-        for field in ("content", "language", "organisation"):
-            if field not in result:
-                result[field] = {"score": 0, "max_score": 7, "comment": "Data missing"}
-
-        if "total_score" not in result:
-            result["total_score"] = (
-                result.get("content", {}).get("score", 0)
-                + result.get("language", {}).get("score", 0)
-                + result.get("organisation", {}).get("score", 0)
+        try:
+            reflect_raw = await llm_complete(
+                f"Essay:\n{req.essay}\n\n{reflect_prompt}",
+                system_prompt="Output only valid JSON.",
             )
-        result.setdefault("max_score", 21)
-        if "percentage" not in result and result.get("max_score", 0) > 0:
-            result["percentage"] = round(result["total_score"] / result["max_score"] * 100, 1)
+            reflection = _parse_json_en(reflect_raw)
+            result["reflection"] = {
+                "performed": True,
+                "score_adjusted": reflection.get("score_adjusted", False),
+                "note": reflection.get("reflection_note", ""),
+            }
+            if reflection.get("revised_overall_comment"):
+                result["overall_comment"] = reflection["revised_overall_comment"]
+        except Exception:
+            result["reflection"] = {"performed": True, "note": "Reflection ran but failed to parse."}
 
         return result
 

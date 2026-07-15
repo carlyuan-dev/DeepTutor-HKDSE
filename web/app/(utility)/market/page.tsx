@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import {
   Archive,
   ArrowRight,
+  BarChart3,
   BookA,
   BookMarked,
   Brackets,
@@ -236,7 +237,13 @@ export default function MarketPage() {
           <h1 className="text-2xl font-semibold text-[var(--foreground)]">{t("Market")}</h1>
           <p className="mt-1 text-sm text-[var(--muted-foreground)]">{t("A full-circle learning ecosystem — plan, learn, practice, assess, and master.")}</p>
         </div>
-        <EngineBadge />
+        <div className="flex items-center gap-3">
+          <Link href="/market/teacher-dashboard"
+            className="flex items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5 text-xs text-indigo-400 hover:bg-indigo-500/20 transition-colors">
+            <BarChart3 size={14} /> {t("Teacher Dashboard")}
+          </Link>
+          <EngineBadge />
+        </div>
       </div>
 
       {/* ── Section: Learning Loop ── */}
