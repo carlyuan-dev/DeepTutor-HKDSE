@@ -15,20 +15,6 @@ interface Feature {
 
 const FEATURES: Feature[] = [
   {
-    id: "F4",
-    icon: Globe,
-    name: "Oral Paper 4 Practice",
-    nameSub: "說話卷練習",
-    description:
-      "Simulates the HKDSE Paper 4 Speaking exam group discussion. Practice with AI-simulated candidates (A, C, D) in a text-based discussion, then receive detailed feedback on Communication Strategies, Language, Ideas & Organisation, and Pronunciation.",
-    steps: [
-      "Select a discussion topic category (Education / Technology / Environment / Social Issues)",
-      "Engage in multi-round group discussion with AI candidates and your own responses",
-      "Receive AI scoring and feedback across 4 dimensions with model answers",
-    ],
-    href: "/market/hkdse/english/oral-practice",
-  },
-  {
     id: "F1",
     icon: Globe,
     name: "English Exam Paper Generator",
@@ -69,6 +55,20 @@ const FEATURES: Feature[] = [
       "Receive AI feedback and a model answer for each stage",
     ],
     href: "/market/hkdse/english/integrated",
+  },
+  {
+    id: "F4",
+    icon: Globe,
+    name: "English Speaking Practice",
+    nameSub: "英語口語考試練習",
+    description:
+      "Simulates the HKDSE Speaking exam group discussion. Practice by voice with AI-simulated candidates, then receive transcript-based feedback on Communication Strategies, Language, and Ideas & Organisation.",
+    steps: [
+      "Select a discussion topic category (Education / Technology / Environment / Social Issues)",
+      "Complete timed voice-based group discussion and individual response sections",
+      "Receive AI feedback with pronunciation and delivery marked as unscored evidence",
+    ],
+    href: "/market/hkdse/english/oral-practice",
   },
 ];
 

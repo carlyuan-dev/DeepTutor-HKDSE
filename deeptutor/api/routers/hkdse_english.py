@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import json
 import logging
-import os
+from pathlib import Path
 import random
+import re
 import statistics
 import traceback
 from typing import Any
@@ -15,6 +17,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from deeptutor.services.path_service import get_path_service
 from deeptutor.services.llm import complete as llm_complete
 from deeptutor.services.llm import stream as llm_stream
 
@@ -401,6 +404,18 @@ async def integrated_skills_feedback(req: IntegratedSkillsRequest) -> dict[str, 
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _ORAL_TOPICS_CACHE: list[dict[str, Any]] | None = None
+_ORAL_TOPICS_RELATIVE_PATH = Path("hkdse") / "english" / "paper4" / "oral_topics.json"
+_ORAL_TOPICS_BUILTIN_PATH = (
+    Path(__file__).resolve().parents[2] / "data" / _ORAL_TOPICS_RELATIVE_PATH
+)
+
+
+def _oral_topic_candidate_paths() -> list[Path]:
+    """Return user-imported topics first, then the packaged sample paper topics."""
+    return [
+        get_path_service().workspace_root / _ORAL_TOPICS_RELATIVE_PATH,
+        _ORAL_TOPICS_BUILTIN_PATH,
+    ]
 
 
 def _load_oral_topics() -> list[dict[str, Any]]:
@@ -408,16 +423,24 @@ def _load_oral_topics() -> list[dict[str, Any]]:
     global _ORAL_TOPICS_CACHE
     if _ORAL_TOPICS_CACHE is not None:
         return _ORAL_TOPICS_CACHE
-    path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "oral_topics.json")
-    path = os.path.abspath(path)
-    try:
-        with open(path) as f:
-            data = json.load(f)
-        _ORAL_TOPICS_CACHE = data.get("topics", [])
+
+    for path in _oral_topic_candidate_paths():
+        try:
+            with path.open(encoding="utf-8") as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            continue
+        except json.JSONDecodeError as e:
+            logger.warning("Failed to decode oral topics from %s: %s", path, e)
+            continue
+
+        topics = data.get("topics", [])
+        _ORAL_TOPICS_CACHE = topics if isinstance(topics, list) else []
         logger.info("Loaded %d oral topics from %s", len(_ORAL_TOPICS_CACHE), path)
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        logger.warning("Failed to load oral topics from %s: %s. Using fallback.", path, e)
-        _ORAL_TOPICS_CACHE = []
+        return _ORAL_TOPICS_CACHE
+
+    logger.warning("No oral topic files found. Using fallback.")
+    _ORAL_TOPICS_CACHE = []
     return _ORAL_TOPICS_CACHE
 
 
@@ -478,8 +501,16 @@ async def oral_topics(req: OralTopicRequest) -> dict[str, Any]:
 
 class OralTurnRequest(BaseModel):
     topic_id: str = ""
-    history: list[dict[str, str]] = []
+    history: list[dict[str, Any]] = []
     phase: str = "discussion"  # discussion | individual_response
+    mode: str = "text"  # text | voice
+    speaker: str | None = None
+    agenda_index: int | None = None
+    agenda_item: str | None = None
+    previous_agenda_item: str | None = None
+    agenda_intent: str | None = None
+    agenda_stance: str | None = None
+    part_b_question: str | None = None
 
 
 def _format_topic_for_prompt(topic_id: str) -> str:
@@ -503,14 +534,183 @@ def _format_topic_for_prompt(topic_id: str) -> str:
     return ""
 
 
-_PERSONALITY_MAP = {
-    "candidate_a": "confident and direct",
-    "candidate_b": "thoughtful and analytical",
-    "candidate_c": "supportive and agreeable",
+_CANDIDATE_PERSONAS = {
+    "candidate_a": {
+        "label": "Candidate A",
+        "style": "confident and direct",
+        "voice": "make clear claims, start or sharpen the discussion, but avoid sounding like an essay",
+    },
+    "candidate_b": {
+        "label": "Candidate B",
+        "style": "cautious and practical",
+        "voice": "raise limits, costs, feasibility, or a polite counterpoint",
+    },
+    "candidate_c": {
+        "label": "Candidate C",
+        "style": "supportive and synthesizing",
+        "voice": "connect other students' ideas, soften disagreement, and invite participation",
+    },
 }
 
 _USER_TURN_THRESHOLD = 5
-_MAX_CONSECUTIVE_AI = 2
+_ORAL_HIDDEN_TAGS = ("think", "thinking", "analysis", "reasoning")
+_STREAM_TAG_TAIL = 24
+_PREFIX_BUFFER_LIMIT = 64
+
+
+@dataclass(frozen=True)
+class OralTurnPlan:
+    speaker: str
+    intent: str
+    target_speaker: str = "group"
+    handoff_to_user: bool = True
+    ask_candidate_d: bool = False
+    max_words: int = 45
+
+
+def _strip_oral_hidden_blocks(text: str) -> str:
+    """Remove model reasoning blocks, including malformed trailing starts."""
+    cleaned = text
+    for tag in _ORAL_HIDDEN_TAGS:
+        cleaned = re.sub(
+            rf"<\s*{tag}\s*>.*?<\s*/\s*{tag}\s*>",
+            "",
+            cleaned,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        cleaned = re.sub(
+            rf"<\s*{tag}\s*>.*$",
+            "",
+            cleaned,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+    return cleaned
+
+
+def _strip_oral_prefix(text: str) -> str:
+    """Remove common non-speech headers and preambles at the start."""
+    cleaned = text.lstrip()
+    cleaned = re.sub(r"^```(?:\w+)?\s*", "", cleaned)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    prefix_patterns = [
+        r"^(?:#+\s*)?(?:Candidate\s+[ABC]|Candidate\s+[A-C]|Examiner|Assistant|AI)\s*[:：\-–—]\s*",
+        r"^Here(?:'s| is)\s+(?:my|the)\s+(?:response|answer|speech)\s*[:：\-–—]\s*",
+        r"^Sure[,.]?\s+here(?:'s| is)\s+(?:my|the)\s+(?:response|answer|speech)\s*[:：\-–—]\s*",
+        r"^My\s+(?:response|answer|speech)\s+(?:would\s+be|is)\s*[:：\-–—]\s*",
+        r"^As\s+(?:Candidate\s+[ABC]|the\s+examiner)\s*,?\s+",
+        r"^I\s+would\s+(?:say|respond)\s*[:：,]?\s*",
+    ]
+
+    changed = True
+    while changed:
+        changed = False
+        for pattern in prefix_patterns:
+            new_cleaned = re.sub(pattern, "", cleaned, count=1, flags=re.IGNORECASE)
+            if new_cleaned != cleaned:
+                cleaned = new_cleaned.lstrip()
+                changed = True
+
+    return cleaned
+
+
+def sanitize_oral_text(text: str) -> str:
+    """Return the final display-safe oral utterance."""
+    cleaned = _strip_oral_hidden_blocks(text)
+    cleaned = _strip_oral_prefix(cleaned)
+    cleaned = re.sub(r"<\s*/?\s*(?:think|thinking|analysis|reasoning)\s*>", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"[ \t\r\f\v]+", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+class OralStreamingSanitizer:
+    """Stateful sanitizer for streamed oral-practice LLM output.
+
+    It removes reasoning tags even when tag boundaries are split across chunks,
+    then buffers the opening text briefly so role labels and assistant preambles
+    do not leak before the stream looks like natural speech.
+    """
+
+    def __init__(self) -> None:
+        self._tag_buffer = ""
+        self._hidden_tag: str | None = None
+        self._prefix_buffer = ""
+        self._prefix_released = False
+
+    def feed(self, chunk: str) -> str:
+        visible = self._strip_hidden_stream(chunk, final=False)
+        if not visible:
+            return ""
+        return self._release_prefix(visible, final=False)
+
+    def flush(self) -> str:
+        visible = self._strip_hidden_stream("", final=True)
+        return self._release_prefix(visible, final=True)
+
+    def _strip_hidden_stream(self, chunk: str, *, final: bool) -> str:
+        self._tag_buffer += chunk
+        output: list[str] = []
+
+        while self._tag_buffer:
+            if self._hidden_tag:
+                close_re = re.compile(rf"<\s*/\s*{re.escape(self._hidden_tag)}\s*>", re.IGNORECASE)
+                match = close_re.search(self._tag_buffer)
+                if not match:
+                    if final:
+                        self._tag_buffer = ""
+                    else:
+                        self._tag_buffer = self._tag_buffer[-_STREAM_TAG_TAIL:]
+                    break
+                self._tag_buffer = self._tag_buffer[match.end():]
+                self._hidden_tag = None
+                continue
+
+            open_match: re.Match[str] | None = None
+            open_tag: str | None = None
+            for tag in _ORAL_HIDDEN_TAGS:
+                match = re.search(rf"<\s*{re.escape(tag)}\s*>", self._tag_buffer, re.IGNORECASE)
+                if match and (open_match is None or match.start() < open_match.start()):
+                    open_match = match
+                    open_tag = tag
+
+            if open_match and open_tag:
+                output.append(self._tag_buffer[:open_match.start()])
+                self._tag_buffer = self._tag_buffer[open_match.end():]
+                self._hidden_tag = open_tag
+                continue
+
+            if final:
+                output.append(self._tag_buffer)
+                self._tag_buffer = ""
+                break
+
+            if "<" not in self._tag_buffer and len(self._tag_buffer) >= 12:
+                output.append(self._tag_buffer)
+                self._tag_buffer = ""
+                break
+
+            emit_len = max(0, len(self._tag_buffer) - _STREAM_TAG_TAIL)
+            if emit_len == 0:
+                break
+            output.append(self._tag_buffer[:emit_len])
+            self._tag_buffer = self._tag_buffer[emit_len:]
+
+        return "".join(output)
+
+    def _release_prefix(self, text: str, *, final: bool) -> str:
+        if self._prefix_released:
+            return text
+
+        self._prefix_buffer += text
+        cleaned = _strip_oral_prefix(self._prefix_buffer)
+        should_release = final or len(self._prefix_buffer) >= _PREFIX_BUFFER_LIMIT or len(cleaned) >= 12
+        if not should_release:
+            return ""
+
+        self._prefix_released = True
+        self._prefix_buffer = ""
+        return cleaned
 
 
 def _build_oral_system_prompt() -> str:
@@ -520,40 +720,178 @@ def _build_oral_system_prompt() -> str:
         "Your output must be ONLY that person's spoken words — "
         "no labels, no headers, no explanations, no formatting.\n\n"
         "RULES:\n"
-        "- Speak naturally, 30-70 words, like a real conversation.\n"
+        "- Speak naturally like a Hong Kong secondary school student in a group discussion.\n"
+        "- Use 1-3 spoken sentences. Do not sound like an essay or formal report.\n"
         "- Do NOT output anything except the speech itself.\n"
-        "- Do NOT say 'Candidate A:', 'I think', or similar framing."
+        "- Start directly with the first spoken word.\n"
+        "- Do NOT include role names, analysis, XML tags, markdown, or explanations."
     )
 
 
-def _build_part_a_prompt(speaker: str, req: OralTurnRequest) -> str:
-    """Build prompt for a Part A group discussion turn. Speaker is pre-determined by backend."""
+_INTENT_INSTRUCTIONS = {
+    "open_discussion": (
+        "Open the discussion with a clear first opinion and one simple reason. "
+        "Speak to the whole group. Do not ask Candidate D directly."
+    ),
+    "agree_and_extend": (
+        "Briefly agree with the target's point, then add one new supporting angle or example."
+    ),
+    "challenge_politely": (
+        "Politely challenge or qualify the target's point. Keep it balanced, not aggressive."
+    ),
+    "ask_user": (
+        "Respond briefly, then ask Candidate D one natural follow-up question."
+    ),
+    "bring_new_angle": (
+        "Bring in one new angle that has not been discussed much yet."
+    ),
+    "soften_or_add_example": (
+        "React to the previous AI speaker, soften or balance their point, and add a concrete example."
+    ),
+    "summarize_and_handoff": (
+        "Briefly summarize the group's direction, then leave the floor open for the next speaker."
+    ),
+}
+
+
+def _speaker_label(speaker: str) -> str:
+    if speaker == "group":
+        return "the group"
+    if speaker == "candidate_d":
+        return "Candidate D"
+    if speaker == "examiner":
+        return "Examiner"
+    return _CANDIDATE_PERSONAS.get(speaker, {}).get("label", speaker.replace("_", " ").title())
+
+
+def _build_part_a_prompt(plan: OralTurnPlan, req: OralTurnRequest) -> str:
+    """Build prompt for a Part A group discussion turn from a backend turn plan."""
     topic_context = _format_topic_for_prompt(req.topic_id) if req.topic_id else ""
-    personality = _PERSONALITY_MAP.get(speaker, "natural")
+    persona = _CANDIDATE_PERSONAS.get(plan.speaker, {})
+    speaker_label = _speaker_label(plan.speaker)
+    target_label = _speaker_label(plan.target_speaker)
+    intent_instruction = _INTENT_INSTRUCTIONS.get(plan.intent, "Continue the discussion naturally.")
+    closing_instruction = (
+        "End with one short, natural question to Candidate D."
+        if plan.ask_candidate_d
+        else (
+            "Do not address Candidate D by name. If you want to invite responses, address the group generally."
+            if plan.handoff_to_user
+            else "Do not end with a question; leave room for another candidate to add something."
+        )
+    )
 
     parts = []
     if topic_context:
         parts.append(f"CONTEXT:\n{topic_context}")
 
-    if not req.history:
-        parts.append(
-            f"You are {speaker.replace('_', ' ').title()} — a {personality} student. "
-            "This is the very first turn. Open the discussion by introducing the topic "
-            "and sharing your first opinion. Speak naturally in 30-70 words."
-        )
-    else:
+    if req.history:
         parts.append("CONVERSATION SO FAR:")
         for msg in req.history:
-            label = msg["speaker"].replace("_", " ").title()
+            label = _speaker_label(msg["speaker"])
             parts.append(f"{label}: {msg['content']}")
 
-        last_msg = req.history[-1]
-        parts.append(
-            f"\nYou are {speaker.replace('_', ' ').title()} — a {personality} student. "
-            f"The user just said: \"{last_msg['content']}\"\n\n"
-            "Acknowledge what the last person said, then add your own point. "
-            "30-70 words, spoken English. Respond naturally to the discussion."
-        )
+    parts.append(
+        f"\nYou are {speaker_label}, a {persona.get('style', 'natural')} student. "
+        f"Your speaking tendency: {persona.get('voice', 'speak naturally')}.\n"
+        f"Conversation intent: {plan.intent}. {intent_instruction}\n"
+        f"Target to respond to: {target_label}.\n"
+        f"Use about 20-{plan.max_words} words, 1-3 short spoken sentences. "
+        "Sound like a real student, not a polished essay. "
+        "Small spoken markers like 'Well,' or 'I guess' are okay if natural. "
+        f"{closing_instruction}"
+    )
+
+    return "\n\n".join(parts)
+
+
+_AGENDA_INTENT_INSTRUCTIONS = {
+    "open_agenda_item": (
+        "If a previous agenda item is provided, bridge from the previous agenda item "
+        "in one natural phrase. Then explicitly name or paraphrase the current agenda question, "
+        "briefly introduce what the group should discuss, then give your own view on the new agenda item."
+    ),
+    "respond_to_user_opened_agenda": (
+        "The user has already opened or shifted to this agenda item. "
+        "Respond directly to the user's point first, then add your own view on the same agenda item. "
+        "Do not re-introduce the agenda as if nobody has mentioned it."
+    ),
+    "respond_and_add": (
+        "Respond briefly to the recent discussion, then add one new point about "
+        "the current agenda item."
+    ),
+    "close_agenda_item": (
+        "Give your view and briefly close the current agenda item. "
+        "Do not introduce a new agenda item, and do not say 'move on' or ask the group "
+        "to discuss another point."
+    ),
+    "free_extension": (
+        "Keep the discussion going with a relevant extra angle while staying close "
+        "to the original task."
+    ),
+}
+
+_AGENDA_STANCE_INSTRUCTIONS = {
+    "support_extend": (
+        "Briefly agree with one earlier point, then extend it with a concrete reason or example."
+    ),
+    "soft_challenge": (
+        "Politely question or qualify one earlier point. Use a gentle phrase like "
+        "\"I see your point, but...\" or \"That may be true, but...\". Do not sound aggressive."
+    ),
+    "balance_both_sides": (
+        "Acknowledge one valid point, then explain a limitation or opposite consideration."
+    ),
+    "new_angle": (
+        "Do not simply repeat or agree. Bring in a fresh angle that has not been discussed much."
+    ),
+    "summarize_transition": (
+        "Briefly summarize the current discussion direction, then move naturally toward the agenda point."
+    ),
+}
+
+
+def _build_agenda_part_a_prompt(req: OralTurnRequest) -> str:
+    """Build a forced-speaker prompt for agenda-queue Part A turns."""
+    speaker = req.speaker or "candidate_a"
+    topic_context = _format_topic_for_prompt(req.topic_id) if req.topic_id else ""
+    persona = _CANDIDATE_PERSONAS.get(speaker, {})
+    speaker_label = _speaker_label(speaker)
+    agenda_number = (req.agenda_index + 1) if req.agenda_index is not None else 1
+    agenda_item = (req.agenda_item or "the current discussion point").strip()
+    previous_agenda = (req.previous_agenda_item or "").strip()
+    intent = req.agenda_intent or "respond_and_add"
+    intent_instruction = _AGENDA_INTENT_INSTRUCTIONS.get(intent, _AGENDA_INTENT_INSTRUCTIONS["respond_and_add"])
+    stance = req.agenda_stance or "new_angle"
+    stance_instruction = _AGENDA_STANCE_INSTRUCTIONS.get(stance, _AGENDA_STANCE_INSTRUCTIONS["new_angle"])
+
+    parts = []
+    if topic_context:
+        parts.append(f"CONTEXT:\n{topic_context}")
+
+    parts.append("AGENDA STATE:")
+    parts.append(f"- Current agenda item {agenda_number}: {agenda_item}")
+    if previous_agenda:
+        parts.append(f"- Previous agenda item: {previous_agenda}")
+    parts.append(f"- Agenda intent: {intent}")
+    parts.append(f"- Response stance: {stance}")
+
+    if req.history:
+        parts.append("CONVERSATION SO FAR:")
+        for msg in req.history:
+            label = _speaker_label(msg["speaker"])
+            parts.append(f"{label}: {msg['content']}")
+
+    parts.append(
+        f"\nYou are {speaker_label}, a {persona.get('style', 'natural')} student. "
+        f"Your speaking tendency: {persona.get('voice', 'speak naturally')}.\n"
+        f"{intent_instruction}\n"
+        f"{stance_instruction}\n"
+        "Use about 60-75 words, with 3-5 natural spoken sentences. "
+        "Sound like a real HKDSE group discussion participant. "
+        "Output only the spoken words; do not include role labels, next-speaker tags, "
+        "markdown, analysis, or control metadata."
+    )
 
     return "\n\n".join(parts)
 
@@ -572,9 +910,11 @@ def _build_examiner_prompt(req: OralTurnRequest) -> str:
 
     parts.append(
         "\nYou are an HKDSE English examiner. Based on the group discussion above, "
-        "ask the student ONE follow-up question about the topic. "
+        "first say exactly: \"That is the end of the group discussion. "
+        "Now we will move on to the individual response section.\" "
+        "Then ask the student ONE follow-up question about the topic. "
         "The question should invite the student to explain their personal views or experiences. "
-        "Output ONLY the question text — no labels, no greetings, no commentary."
+        "Output ONLY the examiner's spoken words — no labels, no greetings, no commentary."
     )
 
     return "\n\n".join(parts)
@@ -630,28 +970,91 @@ def _count_consecutive_ai(history: list[dict]) -> int:
     return count
 
 
-def _pick_next_ai_speaker(history: list[dict]) -> str:
-    """Pick next AI speaker via weighted random, favoring less-spoken candidates."""
-    counts = {"candidate_a": 0, "candidate_b": 0, "candidate_c": 0}
-    for msg in history:
-        s = msg.get("speaker", "")
-        if s in counts:
-            counts[s] += 1
+def _last_speaker(history: list[dict]) -> str | None:
+    return history[-1].get("speaker") if history else None
 
-    last_ai = _get_last_ai_speaker(history)
 
-    # Don't repeat the same speaker
-    available = {k: v for k, v in counts.items() if k != last_ai}
-    if not available:
-        available = dict(counts)
+def _plan_next_part_a_turn(history: list[dict]) -> OralTurnPlan:
+    """Choose the next AI speaker and conversational intent with backend rules."""
+    user_turns = _count_user_turns(history)
+    consecutive_ai = _count_consecutive_ai(history)
+    last_speaker = _last_speaker(history)
 
-    # Weight: higher = less-spoken
-    max_count = max(available.values())
-    weights = {k: max(1, max_count - v + 1) for k, v in available.items()}
+    if not history:
+        return OralTurnPlan(
+            speaker="candidate_a",
+            intent="open_discussion",
+            target_speaker="group",
+            handoff_to_user=True,
+            ask_candidate_d=False,
+            max_words=42,
+        )
 
-    speakers = list(weights.keys())
-    speaker_weights = [weights[k] for k in speakers]
-    return random.choices(speakers, weights=speaker_weights, k=1)[0]
+    # Keep AI bursts short. If an AI has just spoken, allow only one more AI
+    # to react, then hand the floor back to the student.
+    if last_speaker in ("candidate_a", "candidate_b", "candidate_c"):
+        if consecutive_ai >= 1:
+            followup_speaker = {
+                "candidate_a": "candidate_c",
+                "candidate_b": "candidate_a",
+                "candidate_c": "candidate_b",
+            }.get(last_speaker, "candidate_a")
+            return OralTurnPlan(
+                speaker=followup_speaker,
+                intent="soften_or_add_example",
+                target_speaker=last_speaker,
+                handoff_to_user=True,
+                ask_candidate_d=False,
+                max_words=38,
+            )
+
+    # After a user turn, vary the rhythm by discussion stage. Only one point in
+    # the middle deliberately creates a two-AI exchange before returning to D.
+    if user_turns <= 1:
+        return OralTurnPlan(
+            speaker="candidate_c",
+            intent="agree_and_extend",
+            target_speaker="candidate_d",
+            handoff_to_user=True,
+            ask_candidate_d=False,
+            max_words=38,
+        )
+    if user_turns == 2:
+        return OralTurnPlan(
+            speaker="candidate_b",
+            intent="challenge_politely",
+            target_speaker="candidate_d",
+            handoff_to_user=False,
+            ask_candidate_d=False,
+            max_words=38,
+        )
+    if user_turns == 3:
+        return OralTurnPlan(
+            speaker="candidate_c",
+            intent="ask_user",
+            target_speaker="candidate_d",
+            handoff_to_user=True,
+            ask_candidate_d=True,
+            max_words=35,
+        )
+    if user_turns == 4:
+        return OralTurnPlan(
+            speaker="candidate_b",
+            intent="summarize_and_handoff",
+            target_speaker="group",
+            handoff_to_user=True,
+            ask_candidate_d=False,
+            max_words=42,
+        )
+
+    return OralTurnPlan(
+        speaker="candidate_a",
+        intent="summarize_and_handoff",
+        target_speaker="group",
+        handoff_to_user=True,
+        ask_candidate_d=False,
+        max_words=42,
+    )
 
 
 def _examiner_has_spoken(history: list[dict]) -> bool:
@@ -670,7 +1073,15 @@ async def oral_turn(req: OralTurnRequest):
     user_turns = _count_user_turns(req.history)
 
     # ── Determine phase and speaker BEFORE calling LLM ──────────────
-    if user_turns >= _USER_TURN_THRESHOLD and not _examiner_has_spoken(req.history):
+    if req.speaker in _CANDIDATE_PERSONAS and req.agenda_item:
+        speaker = req.speaker
+        continues = False
+        next_phase = "discussion"
+        next_speaker = "candidate_d"
+        prompt = _build_agenda_part_a_prompt(req)
+        system_prompt = _build_oral_system_prompt()
+
+    elif user_turns >= _USER_TURN_THRESHOLD and not _examiner_has_spoken(req.history):
         # ── Transition: Part A done → generate Part B examiner question ──
         speaker = "examiner"
         continues = False
@@ -690,26 +1101,13 @@ async def oral_turn(req: OralTurnRequest):
 
     else:
         # ── Part A normal discussion turn ──
-        speaker = _pick_next_ai_speaker(req.history)
-        con_ai = _count_consecutive_ai(req.history)
-        continues = con_ai < _MAX_CONSECUTIVE_AI - 1  # True until 1 before limit
-
-        # Next phase: stay in discussion unless threshold reached
+        turn_plan = _plan_next_part_a_turn(req.history)
+        speaker = turn_plan.speaker
+        continues = not turn_plan.handoff_to_user
         next_phase = "discussion"
-        next_speaker = "candidate_d"  # user's turn (default)
+        next_speaker = "candidate_d" if turn_plan.handoff_to_user else "ai"
 
-        if continues:
-            # Another AI follows
-            if speaker == "candidate_a":
-                next_speaker = "candidate_b"
-            elif speaker == "candidate_b":
-                next_speaker = "candidate_c"
-            else:
-                next_speaker = "candidate_a"
-        else:
-            next_speaker = "candidate_d"
-
-        prompt = _build_part_a_prompt(speaker, req)
+        prompt = _build_part_a_prompt(turn_plan, req)
         system_prompt = _build_oral_system_prompt()
 
     # ── Stream the LLM output (pure speech, no parsing needed) ──────
@@ -717,12 +1115,23 @@ async def oral_turn(req: OralTurnRequest):
         try:
             yield json.dumps({"type": "turn_start"}) + "\n"
 
-            content_chunks: list[str] = []
+            raw_chunks: list[str] = []
+            clean_chunks: list[str] = []
+            sanitizer = OralStreamingSanitizer()
             async for chunk in llm_stream(prompt, system_prompt=system_prompt):
-                content_chunks.append(chunk)
-                yield json.dumps({"type": "chunk", "content": chunk}) + "\n"
+                raw_chunks.append(chunk)
+                cleaned_chunk = sanitizer.feed(chunk)
+                if cleaned_chunk:
+                    clean_chunks.append(cleaned_chunk)
+                    yield json.dumps({"type": "chunk", "content": cleaned_chunk}) + "\n"
 
-            content = "".join(content_chunks).strip()
+            tail = sanitizer.flush()
+            if tail:
+                clean_chunks.append(tail)
+                yield json.dumps({"type": "chunk", "content": tail}) + "\n"
+
+            raw_content = "".join(raw_chunks)
+            content = sanitize_oral_text(raw_content) or sanitize_oral_text("".join(clean_chunks))
 
             yield json.dumps({
                 "type": "turn_end",
@@ -748,7 +1157,7 @@ _ORAL_FEEDBACK_SCHEMA = {
     "communication": {"score": 4, "max_score": 7, "comment": ""},
     "language": {"score": 4, "max_score": 7, "comment": ""},
     "ideas_organisation": {"score": 4, "max_score": 7, "comment": ""},
-    "pronunciation_delivery": {"score": 0, "max_score": 7},
+    "pronunciation_delivery": {"score": 0, "max_score": 7, "locked": True, "comment": ""},
     "total_score": 12,
     "max_score": 28,
     "percentage": 42.9,
@@ -757,6 +1166,87 @@ _ORAL_FEEDBACK_SCHEMA = {
     "overall_comment": "",
     "model_excerpt": "",
 }
+
+
+def _count_words(text: str) -> int:
+    return len(re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", text))
+
+
+def _summarize_oral_voice_metadata(history: list[dict]) -> dict[str, Any]:
+    """Aggregate browser-captured voice evidence for Candidate D turns."""
+    user_voice_turns = 0
+    total_duration_ms = 0
+    total_words = 0
+    interruptions = 0
+    confidences: list[float] = []
+
+    for msg in history:
+        if msg.get("speaker") != "candidate_d":
+            continue
+        voice = msg.get("voice")
+        if not isinstance(voice, dict):
+            continue
+
+        duration_ms = int(voice.get("duration_ms") or 0)
+        if duration_ms <= 0:
+            continue
+
+        user_voice_turns += 1
+        total_duration_ms += duration_ms
+        total_words += int(voice.get("word_count") or _count_words(str(msg.get("content", ""))))
+        if voice.get("interrupted_ai"):
+            interruptions += 1
+        confidence = voice.get("asr_confidence")
+        if isinstance(confidence, int | float):
+            confidences.append(float(confidence))
+
+    words_per_minute = (
+        round(total_words / (total_duration_ms / 60000))
+        if total_duration_ms > 0 and total_words > 0
+        else 0
+    )
+    average_asr_confidence = round(statistics.mean(confidences), 2) if confidences else None
+
+    return {
+        "has_voice_evidence": user_voice_turns > 0,
+        "user_voice_turns": user_voice_turns,
+        "total_duration_ms": total_duration_ms,
+        "total_words": total_words,
+        "words_per_minute": words_per_minute,
+        "interruptions": interruptions,
+        "average_asr_confidence": average_asr_confidence,
+    }
+
+
+def _build_pronunciation_delivery_score(summary: dict[str, Any]) -> dict[str, Any]:
+    """Return unscored pronunciation metadata until audio-level analysis exists."""
+    if not summary.get("has_voice_evidence"):
+        return {
+            "score": 0,
+            "max_score": 7,
+            "locked": True,
+            "comment": "Pronunciation & Delivery is not scored yet because audio-level pronunciation analysis is not available.",
+            "evidence": summary,
+        }
+
+    wpm = int(summary.get("words_per_minute") or 0)
+    confidence = summary.get("average_asr_confidence")
+    confidence_text = (
+        f", ASR confidence {round(confidence * 100)}%"
+        if isinstance(confidence, int | float)
+        else ""
+    )
+    return {
+        "score": 0,
+        "max_score": 7,
+        "locked": True,
+        "comment": (
+            f"Voice mode captured {summary.get('user_voice_turns', 0)} spoken turns "
+            f"at about {wpm} wpm{confidence_text}. Pronunciation & Delivery is not scored yet; "
+            "these are delivery signals only, not audio-level pronunciation analysis."
+        ),
+        "evidence": summary,
+    }
 
 
 def _build_oral_feedback_system_prompt() -> str:
@@ -769,30 +1259,92 @@ def _build_oral_feedback_system_prompt() -> str:
     )
 
 
-def _build_oral_feedback_user_prompt(history: list[dict[str, str]], topic_id: str) -> str:
+def _build_oral_feedback_user_prompt(history: list[dict[str, Any]], topic_id: str) -> str:
     topic_context = _format_topic_for_prompt(topic_id) if topic_id else ""
     conversation = "\n".join(
         f"{m['speaker'].replace('_', ' ').title()}: {m['content']}"
         for m in history
     )
+    candidate_d_turns = "\n".join(
+        f"- {m.get('content', '')}"
+        for m in history
+        if m.get("speaker") == "candidate_d"
+    ) or "- No Candidate D speech was captured."
     context_block = f"\nTopic:\n{topic_context}\n\n" if topic_context else "\n"
     return (
         f"Evaluate the user's performance in this HKDSE Paper 4 group discussion.{context_block}"
+        f"Score Candidate D only. Candidate D is the user. "
+        f"Do not credit Candidate D for ideas, vocabulary, transitions, or acknowledgements spoken by Candidate A, Candidate B, Candidate C, or the Examiner. "
+        f"Every quoted example or evidence phrase in your feedback must appear in Candidate D turns only. "
+        f"If a phrase appears only in the Full Conversation but not in Candidate D turns, do not use it as evidence for Candidate D. "
+        f"If Candidate D only says testing phrases or gives little topic-relevant content, assign very low scores even if the AI candidates perform well.\n\n"
+        f"Candidate D turns only:\n{candidate_d_turns}\n\n"
         f"Full Conversation:\n{conversation}\n\n"
         f"HKDSE Paper 4 Speaking Marking Criteria (max 28):\n\n"
         f"1. Communication Strategies (7 marks):\n"
         f"   - Initiating, maintaining, and closing discussions\n"
-        f"   - Turn-taking, negotiating meaning, responding appropriately\n\n"
+        f"   - Turn-taking, negotiating meaning, responding appropriately\n"
+        f"   - Credit the user for useful agenda control, including opening a topic, "
+        f"moving the group to the next guiding question, and keeping the discussion on task.\n"
+        f"   - Do not penalise a reasonable topic transition merely because it does not explicitly echo every AI candidate first.\n\n"
         f"2. Language (7 marks):\n"
         f"   - Range and accuracy of vocabulary\n"
-        f"   - Grammatical accuracy and sentence variety\n\n"
+        f"   - Grammatical accuracy and sentence variety\n"
+        f"   - IMPORTANT: voice turns are ASR transcript text, not a polished written script. "
+        f"Do not treat obvious speech-recognition noise as grammatical errors. "
+        f"Do not quote garbled ASR fragments as language evidence unless the user's intended meaning is genuinely unclear. "
+        f"Assess whether the overall spoken meaning can be understood despite minor oral slips or ASR artifacts.\n\n"
         f"3. Ideas and Organisation (7 marks):\n"
         f"   - Relevance and depth of ideas\n"
         f"   - Logical organisation of arguments\n\n"
-        f"4. Pronunciation and Delivery (7 marks) — [Voice feature — mark as 0/7]\n\n"
+        f"4. Pronunciation and Delivery (7 marks) — not scored in this V1 voice mode because "
+        f"audio-level pronunciation analysis is not available. The backend may attach delivery evidence only.\n\n"
         f"Return JSON matching this schema:\n"
         f"{json.dumps(_ORAL_FEEDBACK_SCHEMA, ensure_ascii=False, indent=2)}"
     )
+
+
+def _candidate_d_relevant_word_count(history: list[dict[str, Any]]) -> int:
+    testing_words = {"test", "testing", "software"}
+    words: list[str] = []
+    for msg in history:
+        if msg.get("speaker") != "candidate_d":
+            continue
+        words.extend(re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", str(msg.get("content", "")).lower()))
+    return sum(1 for word in words if word not in testing_words)
+
+
+def _apply_low_participation_feedback_cap(result: dict[str, Any], history: list[dict[str, Any]]) -> dict[str, Any]:
+    """Prevent AI-candidate content from inflating scores when Candidate D barely speaks."""
+    relevant_words = _candidate_d_relevant_word_count(history)
+    if relevant_words >= 20:
+        return result
+
+    comments = {
+        "communication": "Too little relevant Candidate D speech was captured to show meaningful interaction or agenda control.",
+        "language": "Too little relevant Candidate D speech was captured to assess language range or accuracy.",
+        "ideas_organisation": "Too little relevant Candidate D speech was captured to assess topic development or organisation.",
+    }
+    for dim, comment in comments.items():
+        current = result.get(dim)
+        if not isinstance(current, dict):
+            current = {"score": 0, "max_score": 7}
+        current["score"] = min(int(current.get("score", 0) or 0), 1)
+        current.setdefault("max_score", 7)
+        current["comment"] = comment
+        result[dim] = current
+
+    result["strengths"] = []
+    result["improvements"] = [
+        "Give topic-relevant answers instead of testing phrases.",
+        "Contribute enough spoken content for the system to assess your performance.",
+    ]
+    result["overall_comment"] = (
+        "Too little relevant Candidate D speech was captured. The score is capped because "
+        "the system must assess only the user's own spoken turns, not the AI candidates' responses."
+    )
+    result["model_excerpt"] = ""
+    return result
 
 
 @router.post("/oral-feedback")
@@ -811,11 +1363,13 @@ async def oral_feedback(req: OralTurnRequest) -> dict[str, Any]:
         for dim in ("communication", "language", "ideas_organisation", "pronunciation_delivery"):
             if dim not in result:
                 result[dim] = {"score": 0, "max_score": 7, "comment": ""}
-        if "total_score" not in result:
-            result["total_score"] = sum(result.get(d, {}).get("score", 0)
-                                        for d in ("communication", "language", "ideas_organisation", "pronunciation_delivery"))
+        result = _apply_low_participation_feedback_cap(result, req.history)
+        voice_summary = _summarize_oral_voice_metadata(req.history)
+        result["pronunciation_delivery"] = _build_pronunciation_delivery_score(voice_summary)
+        result["total_score"] = sum(result.get(d, {}).get("score", 0)
+                                    for d in ("communication", "language", "ideas_organisation", "pronunciation_delivery"))
         result.setdefault("max_score", 28)
-        if "percentage" not in result and result.get("max_score", 0) > 0:
+        if result.get("max_score", 0) > 0:
             result["percentage"] = round(result["total_score"] / result["max_score"] * 100, 1)
         result.setdefault("strengths", [])
         result.setdefault("improvements", [])

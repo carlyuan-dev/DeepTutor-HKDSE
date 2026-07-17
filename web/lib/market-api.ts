@@ -231,24 +231,26 @@ export type OralTurnCallbacks = {
 
 export async function takeOralTurn(
   req: OralTurnRequest,
-  callbacks: OralTurnCallbacks
+  callbacks: OralTurnCallbacks,
+  options?: { signal?: AbortSignal }
 ): Promise<void> {
-  const res = await fetch(apiUrl("/api/v1/hkdse/english/oral-turn"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(req),
-  });
-
-  if (!res.ok || !res.body) {
-    callbacks.onError(`Server error ${res.status}`);
-    return;
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
   try {
+    const res = await fetch(apiUrl("/api/v1/hkdse/english/oral-turn"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+      signal: options?.signal,
+    });
+
+    if (!res.ok || !res.body) {
+      callbacks.onError(`Server error ${res.status}`);
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -278,6 +280,11 @@ export async function takeOralTurn(
       }
     }
   } catch (e: unknown) {
+    if (
+      options?.signal?.aborted
+      || (e instanceof DOMException && e.name === "AbortError")
+      || (e instanceof Error && e.name === "AbortError")
+    ) return;
     callbacks.onError(e instanceof Error ? e.message : "Stream parse failed");
   }
 }

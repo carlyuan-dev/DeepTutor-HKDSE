@@ -174,15 +174,32 @@ export interface StepCheckResult {
 
 export type OralTopic = "education" | "technology" | "environment" | "social_issues";
 
+export interface OralVoiceMetadata {
+  duration_ms: number;
+  word_count: number;
+  interrupted_ai: boolean;
+  asr_confidence?: number | null;
+  transcript_source: "web_speech" | "manual_fallback";
+}
+
 export interface OralMessage {
   speaker: "candidate_a" | "candidate_b" | "candidate_c" | "candidate_d" | "examiner";
   content: string;
+  voice?: OralVoiceMetadata;
 }
 
 export interface OralTurnRequest {
   topic_id: string;
   history: OralMessage[];
   phase: "discussion" | "individual_response";
+  mode?: "text" | "voice";
+  speaker?: "candidate_a" | "candidate_b" | "candidate_c";
+  agenda_index?: number;
+  agenda_item?: string;
+  previous_agenda_item?: string;
+  agenda_intent?: "open_agenda_item" | "respond_to_user_opened_agenda" | "respond_and_add" | "close_agenda_item" | "free_extension";
+  agenda_stance?: "support_extend" | "soft_challenge" | "balance_both_sides" | "new_angle" | "summarize_transition";
+  part_b_question?: string;
 }
 
 export interface OralTopicResponse {
@@ -199,7 +216,21 @@ export interface OralFeedbackResult {
   communication: DimensionScore;
   language: DimensionScore;
   ideas_organisation: DimensionScore;
-  pronunciation_delivery: { score: number; max_score: number };
+  pronunciation_delivery: {
+    score: number;
+    max_score: number;
+    locked?: boolean;
+    comment?: string;
+    evidence?: {
+      has_voice_evidence: boolean;
+      user_voice_turns: number;
+      total_duration_ms: number;
+      total_words: number;
+      words_per_minute: number;
+      interruptions: number;
+      average_asr_confidence: number | null;
+    };
+  };
   total_score: number;
   max_score: number;
   percentage: number;
