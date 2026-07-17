@@ -2,66 +2,9 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowLeft, FileText, Loader2, Star } from "lucide-react";
+import { ArrowLeft, FileText, Loader2 } from "lucide-react";
 import { gradeChineseEssay } from "@/lib/market-api";
-import { apiUrl } from "@/lib/api";
 import type { ChineseEssayRequest, ChineseEssayResult, DimensionScore } from "@/types/market";
-
-function ModelAnswerButton({ title, essay, genre, language }: { title: string; essay: string; genre: string; language: string }) {
-  const [loading, setLoading] = useState(false);
-  const [model, setModel] = useState<any>(null);
-  if (!essay) return null;
-
-  const fetchModel = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(apiUrl("/api/v1/market-tools/essay/model-answer"), {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, essay: essay.slice(0, 2000), genre, language }),
-      });
-      const data = await res.json();
-      if (!data.error) setModel(data);
-    } catch {}
-    setLoading(false);
-  };
-
-  return (
-    <div className="space-y-3">
-      <button onClick={fetchModel} disabled={loading}
-        className={`flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 ${loading ? "bg-amber-400" : "bg-amber-500"}`}>
-        {loading ? <Loader2 size={14} className="animate-spin" /> : <Star size={14} />}
-        {loading ? "生成中..." : "生成 5** 範文對比"}
-      </button>
-      {model && (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5 space-y-3 max-h-80 overflow-y-auto">
-          <p className="text-xs font-medium text-amber-400">⭐ 5** Model Essay ({model.model_essay?.length || 0} 字)</p>
-          {model.key_features?.length > 0 && (
-            <div className="space-y-1">
-              <p className="text-[10px] text-[var(--muted-foreground)]">Key Features:</p>
-              {model.key_features.slice(0, 3).map((f: string, i: number) => (
-                <p key={i} className="text-[11px] text-[var(--foreground)]">· {f}</p>
-              ))}
-            </div>
-          )}
-          {model.learnable_techniques?.length > 0 && (
-            <div className="space-y-1">
-              <p className="text-[10px] text-[var(--muted-foreground)]">可學技巧:</p>
-              {model.learnable_techniques.slice(0, 3).map((t: string, i: number) => (
-                <p key={i} className="text-[11px] text-amber-400">💡 {t}</p>
-              ))}
-            </div>
-          )}
-          {model.model_essay && (
-            <details>
-              <summary className="cursor-pointer text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]">展開範文全文</summary>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--foreground)] whitespace-pre-wrap">{model.model_essay}</p>
-            </details>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 type Stage = "config" | "grading" | "result" | "error";
 
@@ -301,67 +244,6 @@ export default function ChineseEssayGraderPage() {
               </div>
             </div>
           )}
-
-          {/* ── Ensemble Panel (3-Agent Grading) ── */}
-          {(result as any).ensemble && (
-            <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/5 p-5">
-              <p className="mb-3 text-xs font-medium text-indigo-400 uppercase tracking-wide">
-                🤖 多 Agent 辯論評分 · {(result as any).ensemble?.agreement_level === "high" ? "✅" : (result as any).ensemble?.agreement_level === "moderate" ? "⚠️" : "🔴"} {(result as any).ensemble?.agreement_level}
-              </p>
-
-              {/* Per-dimension agent scores */}
-              <div className="space-y-3 mb-4">
-                {(["content", "expression", "organization"] as const).map((dim) => {
-                  const d = result[dim] as any;
-                  const labels = { content: "內容", expression: "表達", organization: "組織" };
-                  const agents = ["嚴格", "寬鬆", "平衡"];
-                  return (
-                    <div key={dim} className="flex items-center gap-3 text-xs">
-                      <span className="w-10 text-[var(--muted-foreground)]">{labels[dim]}</span>
-                      <div className="flex gap-1.5 flex-1">
-                        {(d?.individual_scores || []).map((s: number, i: number) => {
-                          const isMedian = s === d?.score;
-                          return (
-                            <span key={i} className={`flex-1 rounded px-2 py-1 text-center font-mono ${isMedian ? "bg-indigo-500/20 text-indigo-400 font-bold ring-1 ring-indigo-500/30" : "bg-[var(--background)] text-[var(--muted-foreground)]"}`}>
-                              {agents[i]} {s}
-                            </span>
-                          );
-                        })}
-                      </div>
-                      <span className="w-24 text-right text-[var(--muted-foreground)]/70">
-                        範圍 {d?.score_range} · 置信度 {d?.confidence}%
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Confidence breakdown */}
-              <div className="border-t border-indigo-500/10 pt-3 flex items-center justify-between text-xs">
-                <span className="text-[var(--muted-foreground)]">
-                  評分者間一致性: <span className="font-medium text-indigo-400">{(result as any).ensemble?.overall_confidence}%</span>
-                  {" · "}
-                  {(result as any).ensemble?.confidence_breakdown?.interpretation}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* ── Self-Reflection Panel ── */}
-          {(result as any).reflection?.performed && (
-            <div className="rounded-xl border border-teal-500/20 bg-teal-500/5 p-4">
-              <p className="mb-2 text-xs font-medium text-teal-400 uppercase tracking-wide">🪞 自我反思迴路</p>
-              <p className="text-xs leading-relaxed text-[var(--foreground)]">
-                {(result as any).reflection?.note}
-              </p>
-              {(result as any).reflection?.score_adjusted && (
-                <p className="mt-1 text-xs text-amber-400">⚠️ 本次評分經反思後已自動修正</p>
-              )}
-            </div>
-          )}
-
-          {/* ── 5** Model Answer ── */}
-          <ModelAnswerButton title={title} essay={essay} genre={genre} language={"zh"} />
 
           {/* Action bar */}
           <div className="flex gap-3 pt-2">

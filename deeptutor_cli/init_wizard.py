@@ -811,17 +811,37 @@ def probe_llm(*, base_url: str, api_key: str, binding: str, model: str) -> tuple
         return False, elapsed, str(exc)[:200]
 
 
-def probe_embedding(*, base_url: str, api_key: str, model: str) -> tuple[bool, int, str]:
-    """POST a tiny embedding request. Returns ``(ok, elapsed_ms, error)``."""
+def probe_embedding(
+    *, base_url: str, api_key: str, model: str, provider: str = ""
+) -> tuple[bool, int, str]:
+    """POST a tiny embedding request. Returns ``(ok, elapsed_ms, error)``.
+
+    The optional *provider* hint switches from the default OpenAI-compatible
+    body to a provider-specific format so that gateways whose REST API
+    diverges from the OpenAI contract (Aliyun DashScope, Cohere, etc.) still
+    get a valid probe payload.
+    """
     if not base_url or not model:
         return False, 0, "missing base_url or model"
+
+    # --- build provider-specific body ----------------------------------------
+    if provider == "aliyun":
+        # DashScope multimodal-embedding REST API expects
+        # ``input.contents`` (list of content objects), not a bare string.
+        # The SDK wraps this, but we hit the REST endpoint directly.
+        body: dict[str, Any] = {
+            "model": model,
+            "input": {"contents": [{"text": "ping"}]},
+        }
+    else:
+        body = {"model": model, "input": "ping"}
+
     started = time.monotonic()
     try:
         headers = {
             "Authorization": f"Bearer {api_key or 'sk-no-key-required'}",
             "Content-Type": "application/json",
         }
-        body = {"model": model, "input": "ping"}
         with httpx.Client(timeout=15.0) as client:
             response = client.post(base_url, headers=headers, json=body)
         elapsed = int((time.monotonic() - started) * 1000)

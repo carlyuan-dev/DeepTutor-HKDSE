@@ -98,7 +98,7 @@ def _llm_step(
 
     if spec is not None:
         binding = spec.name
-        default_base = spec.default_api_base or str(current_profile.get("base_url") or "")
+        default_base = str(current_profile.get("base_url") or "") or spec.default_api_base
         display_provider = spec.label
         env_key = spec.env_key
     else:
@@ -219,7 +219,9 @@ def _embedding_step(
     display_provider = (
         spec.label if spec else EMBEDDING_PROVIDER_LABELS.get(provider, provider.title())
     )
-    default_endpoint = spec.default_api_base if spec else str(current_profile.get("base_url") or "")
+    default_endpoint = str(current_profile.get("base_url") or "") or (
+        spec.default_api_base if spec else ""
+    )
 
     edit_endpoint = typer.confirm(strings["init.edit_base_url"], default=not bool(default_endpoint))
     endpoint = (
@@ -231,12 +233,26 @@ def _embedding_step(
     if not edit_endpoint:
         wiz.info(console, f"Endpoint · {endpoint or '(empty)'}")
 
-    # Reuse the LLM key by default — most users share creds across services.
-    masked = wiz._mask_secret(llm_api_key)
-    if llm_api_key and typer.confirm(
-        strings["init.api_key_reuse_llm"].format(masked=masked), default=True
-    ):
-        api_key = llm_api_key
+    # Prefer the previously saved embedding key first, then fall back
+    # to reusing the LLM key, then prompt for a new one.
+    current_emb_api_key = str(current_profile.get("api_key") or "")
+    if current_emb_api_key:
+        api_key = wiz.capture_api_key(
+            console,
+            strings,
+            env_key="",
+            current=current_emb_api_key,
+        )
+    elif llm_api_key:
+        masked = wiz._mask_secret(llm_api_key)
+        if typer.confirm(
+            strings["init.api_key_reuse_llm"].format(masked=masked), default=True
+        ):
+            api_key = llm_api_key
+        else:
+            api_key = typer.prompt(
+                strings["init.embedding_api_key"], default="", hide_input=True, show_default=False
+            )
     else:
         api_key = typer.prompt(
             strings["init.embedding_api_key"], default="", hide_input=True, show_default=False
@@ -258,7 +274,8 @@ def _embedding_step(
         current=str((current_profile.get("models") or [{}])[0].get("model") or ""),
         custom_prompt_label=strings["init.embedding_model"],
     )
-    dimension = typer.prompt(strings["init.embedding_dimension"], default="")
+    current_dim = str((current_profile.get("models") or [{}])[0].get("dimension") or "")
+    dimension = typer.prompt(strings["init.embedding_dimension"], default=current_dim)
 
     choice = wiz.EmbeddingChoice(
         binding=provider,
@@ -272,7 +289,10 @@ def _embedding_step(
     if typer.confirm(strings["init.probe_offer"], default=True):
         wiz.info(console, strings["init.probe_running"].format(what=display_provider))
         ok_result, elapsed_ms, error = wiz.probe_embedding(
-            base_url=choice.base_url, api_key=choice.api_key, model=choice.model
+            base_url=choice.base_url,
+            api_key=choice.api_key,
+            model=choice.model,
+            provider=choice.binding,
         )
         choice.probed = True
         choice.probe_ok = ok_result
