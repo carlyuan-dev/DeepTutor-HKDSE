@@ -15,6 +15,7 @@ deeptutor/agents/question/reference_papers/
 deeptutor/services/rag/eg_only_for_analysis/
 /docs/
 .claude
+handoff-to-codex.md
 oral-practice-module-private-notes.md
 /-dse.life-past-paper-collection/
 
