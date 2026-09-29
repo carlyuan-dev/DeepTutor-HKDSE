@@ -1,0 +1,83 @@
+{
+  "source": "Original fictional practice scenarios for DeepTutor-HKDSE",
+  "official_exam_material": false,
+  "license": "Apache-2.0",
+  "topics": [
+    {
+      "id": "demo_education_01",
+      "category": "education",
+      "topic": "A Student-Led Skills Afternoon",
+      "prompt": "In this fictional school, the student council can organise one afternoon of activities next term. Instead of inviting professional speakers, it wants students to teach one another useful skills. Suggested sessions include repairing a loose button, planning a simple budget, preparing for a presentation and taking clearer photographs with a phone.\n\nSome students like the chance to learn something practical without being graded. Others worry that popular sessions will fill up quickly while quieter students may feel uncomfortable teaching. Teachers can supervise, but they cannot prepare every activity. The council also needs a plan for students who do not own a smartphone or cannot buy materials.\n\nThe school has offered three classrooms and two hours. Participation will be free. The council must decide which activities to offer, how to recruit student helpers and how to find out whether the afternoon was useful.",
+      "discussion_task": "You and your classmates are on the student council. Discuss a practical plan for the skills afternoon and agree on your priorities.",
+      "guiding_questions": [
+        "Which skills would be most useful to students, and why?",
+        "How could the council recruit and support student helpers?",
+        "How could everyone participate without buying equipment?",
+        "How should the council judge whether to repeat the event?"
+      ],
+      "part_b_questions": [
+        "What is a useful skill you have learned outside lessons?",
+        "Would you rather teach a skill or learn one at a school event? Why?",
+        "How can a school encourage students who are shy about joining activities?",
+        "Should practical skills have more space in the school timetable?"
+      ]
+    },
+    {
+      "id": "demo_technology_01",
+      "category": "technology",
+      "topic": "A Phone-Free Lunch Trial",
+      "prompt": "In this fictional scenario, a secondary school is considering a two-week phone-free lunch trial. Students would keep their phones in their bags while eating in one designated area. The rest of the school would follow its usual rules. The proposal aims to create a space where students can talk without feeling that they must keep checking messages.\n\nSupporters suggest putting card games and conversation prompts on the tables. Other students point out that phones help them contact family, check travel information or translate unfamiliar words. Some students also enjoy spending lunch quietly and do not want to be pushed into group activities.\n\nThe school has not decided whether joining should be voluntary. Student representatives have been asked to propose clear rules, reasonable exceptions and a way to collect feedback without recording private conversations.",
+      "discussion_task": "Your group represents students at a planning meeting. Discuss whether the trial should go ahead and recommend how it should work.",
+      "guiding_questions": [
+        "What benefits and difficulties might students experience?",
+        "Should participation be voluntary, and what exceptions are needed?",
+        "What activities could make the space welcoming without forcing people to socialise?",
+        "What feedback would show whether the trial was worthwhile?"
+      ],
+      "part_b_questions": [
+        "When do you find your phone most useful during a school day?",
+        "Is it easy for you to put your phone away when talking to someone?",
+        "How should schools balance rules with students' personal choices?",
+        "Can technology help people spend less time looking at screens?"
+      ]
+    },
+    {
+      "id": "demo_environment_01",
+      "category": "environment",
+      "topic": "Borrowing Equipment for School Events",
+      "prompt": "In this fictional school, clubs often buy decorations and equipment for a single event. Afterwards, usable items such as display stands, tablecloths and battery-powered lights may sit in different cupboards or be thrown away because nobody knows who needs them.\n\nAn environmental club proposes a shared borrowing cupboard. Clubs could reserve items using a simple online list and return them after events. This might reduce waste and repeated purchases, but someone would need to check the equipment, keep records and deal with late or damaged returns. Storage space is limited, so not every donated item could be accepted.\n\nThe school is willing to try the idea for one term using an existing storeroom. Students must recommend what to collect first and how to share the work fairly.",
+      "discussion_task": "You are planning the borrowing cupboard with other club representatives. Agree on a realistic first-term plan.",
+      "guiding_questions": [
+        "Which items should the cupboard accept first?",
+        "How should borrowing, returns and damaged items be handled?",
+        "How can volunteers share the work without becoming overloaded?",
+        "How could students measure whether the project reduces waste?"
+      ],
+      "part_b_questions": [
+        "Have you borrowed something instead of buying it?",
+        "What makes people willing to share their belongings?",
+        "Should convenience or reducing waste have a higher priority at school events?",
+        "How can a small school project encourage longer-term habits?"
+      ]
+    },
+    {
+      "id": "demo_social_01",
+      "category": "social_issues",
+      "topic": "A Neighbourhood Welcome Walk",
+      "prompt": "In this fictional neighbourhood, a community centre wants to help new residents become familiar with local facilities. It proposes a short welcome walk led by student volunteers. Possible stops include the library, a public sitting area, a sports centre and a local market. The walk would share practical information rather than advertise businesses.\n\nSome residents would like an evening walk after work, while families with younger children prefer a weekend morning. Older participants may need frequent breaks, and people who are new to the area may speak different languages. Volunteers must also respect residents who do not want to be photographed.\n\nThe centre can run one pilot walk with a small group. It asks students to choose a route, prepare useful information and explain how they would respond if the weather changed.",
+      "discussion_task": "Your group is helping the community centre. Discuss a welcoming and accessible plan for the pilot walk.",
+      "guiding_questions": [
+        "Which places should the route include, and why?",
+        "What time and pace would suit the participants?",
+        "How should volunteers address language, accessibility and privacy needs?",
+        "What should happen if the weather makes the planned walk unsuitable?"
+      ],
+      "part_b_questions": [
+        "Which place would you show someone who has just moved to your area?",
+        "What can students learn from volunteering in their neighbourhood?",
+        "Is an organised activity the best way to help newcomers feel welcome?",
+        "How can a community include people who prefer not to join group events?"
+      ]
+    }
+  ]
+}

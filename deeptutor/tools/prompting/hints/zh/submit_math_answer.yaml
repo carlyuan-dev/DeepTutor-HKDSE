@@ -1,0 +1,4 @@
+short_description: "使用服务端答案键确定性评分，并且只更新一次学习记录。"
+when_to_use: "ask_user 收集到本 attempt 每道题的 A-D 选项后必须立即调用；不得自行判断对错，也不得在取得本工具的权威评分前结束。"
+input_format: "原样使用 attempt_id；answers=[{question_id, answer}]。"
+guideline: "不要推测或提交答案键；只提交学生选择，再根据评分 observation 决定继续还是结束。"

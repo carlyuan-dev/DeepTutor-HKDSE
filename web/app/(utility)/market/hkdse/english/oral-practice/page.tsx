@@ -35,6 +35,7 @@ type AiTurnPlan = {
 type PreparedAiTurn = AiTurnPlan & {
   content: string;
   basisText?: string;
+  partialInput?: { version: number; text: string };
 };
 
 type BrowserSpeechRecognition = {
@@ -221,14 +222,12 @@ function queueStartingWith(firstSpeaker: AiSpeaker, previousLast?: AiSpeaker | n
 }
 
 function transcriptLooksCompatible(basis: string, finalText: string): boolean {
-  const basisWords = new Set(normalizeForAgendaMatch(basis));
-  const finalWords = new Set(normalizeForAgendaMatch(finalText));
-  if (basisWords.size === 0) return true;
-  let overlap = 0;
-  basisWords.forEach((word) => {
-    if (finalWords.has(word)) overlap += 1;
-  });
-  return overlap / basisWords.size >= 0.4;
+  return normalizePrefetchInput(basis) === normalizePrefetchInput(finalText);
+}
+
+function normalizePrefetchInput(text: string): string {
+  // Preserve case, punctuation, word order and negation; whitespace only.
+  return text.trim().replace(/\s+/g, " ");
 }
 
 function scoreColor(score: number, max: number) {
@@ -790,6 +789,10 @@ export default function OralPracticePage() {
   const preparedAiTurnRef = useRef<PreparedAiTurn | null>(null);
   const prefetchAbortRef = useRef<AbortController | null>(null);
   const speculativeUserPrefetchKeyRef = useRef<string | null>(null);
+  const partialInputVersionRef = useRef(0);
+  const partialInputRef = useRef<{
+    version: number; text: string; submitted: boolean; controller: AbortController;
+  } | null>(null);
   const partBQuestionRef = useRef("");
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const isListeningRef = useRef(false);
@@ -873,6 +876,7 @@ export default function OralPracticePage() {
   };
 
   const clearPreparedAiTurn = () => {
+    partialInputRef.current = null;
     preparedAiTurnRef.current = null;
     prefetchAbortRef.current?.abort();
     prefetchAbortRef.current = null;
@@ -983,10 +987,31 @@ export default function OralPracticePage() {
 
   const preparedMatchesPlan = (prepared: PreparedAiTurn | null, plan: AiTurnPlan) => {
     return Boolean(prepared)
+      && preparedInputIsValid(prepared)
       && prepared?.speaker === plan.speaker
       && prepared?.agendaIndex === plan.agendaIndex
       && prepared?.agendaItem === plan.agendaItem
       && prepared?.agendaIntent === plan.agendaIntent;
+  };
+
+  const preparedInputIsValid = (prepared: PreparedAiTurn | null, forConsumption = false) => {
+    if (!prepared?.partialInput) return true; // Agenda/TTS prefetch is unchanged.
+    const input = partialInputRef.current;
+    return Boolean(input && !input.controller.signal.aborted
+      && input.version === prepared.partialInput.version
+      && input.text === prepared.partialInput.text
+      && (!forConsumption || input.submitted));
+  };
+
+  const invalidatePartialInput = () => {
+    const input = partialInputRef.current;
+    partialInputRef.current = null;
+    input?.controller.abort();
+    if (input && prefetchAbortRef.current === input.controller) {
+      prefetchAbortRef.current = null;
+    }
+    if (preparedAiTurnRef.current?.partialInput) preparedAiTurnRef.current = null;
+    speculativeUserPrefetchKeyRef.current = null;
   };
 
   const clearPartATimer = () => {
@@ -1221,6 +1246,10 @@ export default function OralPracticePage() {
   const prefetchFromPartialUserTranscript = (partialText: string) => {
     if (phaseRef.current !== "discussion" || feedbackInFlightRef.current) return;
     const trimmed = partialText.trim();
+    const inputText = normalizePrefetchInput(trimmed);
+    if (partialInputRef.current && partialInputRef.current.text !== inputText) {
+      invalidatePartialInput();
+    }
     const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
     if (wordCount < SPECULATIVE_USER_PREFETCH_MIN_WORDS) return;
 
@@ -1243,7 +1272,7 @@ export default function OralPracticePage() {
       speculativeQueue.length,
       speculativeOpenedByUser,
     );
-    const key = `${speaker}:${plan.agendaIndex}:${plan.agendaIntent}`;
+    const key = `${speaker}:${plan.agendaIndex}:${plan.agendaIntent}:${inputText}`;
     if (speculativeUserPrefetchKeyRef.current === key) return;
     speculativeUserPrefetchKeyRef.current = key;
     if (preparedMatchesPlan(preparedAiTurnRef.current, plan)) return;
@@ -1251,6 +1280,11 @@ export default function OralPracticePage() {
     prefetchAbortRef.current?.abort();
     const controller = new AbortController();
     prefetchAbortRef.current = controller;
+    const input = {
+      version: ++partialInputVersionRef.current, text: inputText,
+      submitted: false, controller,
+    };
+    partialInputRef.current = input;
     const speculativeMessages: OralMessage[] = [
       ...messagesRef.current,
       { speaker: "candidate_d", content: trimmed },
@@ -1259,7 +1293,11 @@ export default function OralPracticePage() {
       const content = await generateAiTurnText(plan, speculativeMessages, controller.signal);
       if (controller.signal.aborted || !content.trim()) return;
       if (phaseRef.current !== "discussion") return;
-      preparedAiTurnRef.current = { ...plan, content, basisText: trimmed };
+      if (partialInputRef.current !== input || prefetchAbortRef.current !== controller) return;
+      preparedAiTurnRef.current = {
+        ...plan, content, basisText: trimmed,
+        partialInput: { version: input.version, text: input.text },
+      };
       if (prefetchAbortRef.current === controller) {
         prefetchAbortRef.current = null;
       }
@@ -1373,7 +1411,8 @@ export default function OralPracticePage() {
       recentlyClosedAgendaIndexRef.current = null;
     }
     const plan = buildAiTurnPlan(speaker, currentAgendaIndex);
-    if (preparedMatchesPlan(preparedAiTurnRef.current, plan)) {
+    if (preparedMatchesPlan(preparedAiTurnRef.current, plan)
+      && preparedInputIsValid(preparedAiTurnRef.current, true)) {
       const prepared = preparedAiTurnRef.current;
       if (!prepared) return;
       preparedAiTurnRef.current = null;
@@ -1510,6 +1549,11 @@ export default function OralPracticePage() {
   const submitUserTurn = async (userMsg: OralMessage) => {
     clearAiBuffer();
     interruptRequestedRef.current = false;
+    const input = partialInputRef.current;
+    if (input) {
+      if (input.text !== normalizePrefetchInput(userMsg.content)) invalidatePartialInput();
+      else input.submitted = true;
+    }
     if (phaseRef.current === "discussion") {
       applyUserAgendaSignal(userMsg.content);
     }
@@ -1556,6 +1600,7 @@ export default function OralPracticePage() {
     if (!speechSupported || isScoring) return;
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Recognition) return;
+    invalidatePartialInput();
 
     interruptedAiRef.current = isAiSpeaking || isAiBuffering;
     interruptRequestedRef.current = isAiSpeaking || isAiBuffering;

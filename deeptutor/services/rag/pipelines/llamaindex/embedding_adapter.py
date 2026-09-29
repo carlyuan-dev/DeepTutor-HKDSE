@@ -10,7 +10,11 @@ from llama_index.core import Settings
 from llama_index.core.base.embeddings.base import BaseEmbedding
 from llama_index.core.bridge.pydantic import PrivateAttr
 
-from deeptutor.services.embedding import EmbeddingConfig, get_embedding_client, get_embedding_config
+from deeptutor.services.embedding import (
+    EmbeddingConfig,
+    get_embedding_client,
+    get_embedding_config,
+)
 from deeptutor.services.embedding.validation import validate_embedding_batch
 
 
@@ -35,6 +39,7 @@ class CustomEmbedding(BaseEmbedding):
     _binding: Any = PrivateAttr(default=None)
     _model: Any = PrivateAttr(default=None)
     _fingerprint: Any = PrivateAttr(default=None)
+    _explicit_config: Any = PrivateAttr(default=None)
 
     def __init__(self, **kwargs):
         progress_cb = kwargs.pop("progress_callback", None)
@@ -42,6 +47,7 @@ class CustomEmbedding(BaseEmbedding):
         super().__init__(**kwargs)
         self._logger = logging.getLogger(__name__)
         self._progress_callback = progress_cb
+        self._explicit_config = embedding_config
         client = (
             get_embedding_client(embedding_config)
             if embedding_config is not None
@@ -63,8 +69,13 @@ class CustomEmbedding(BaseEmbedding):
         return self._fingerprint == _config_fingerprint(config)
 
     def refresh_client(self, config: EmbeddingConfig | None = None) -> Any:
-        """Refresh the cached client if settings changed while the pipeline lived."""
-        client = get_embedding_client(config) if config is not None else get_embedding_client()
+        """Refresh from global settings, unless this instance has an explicit config."""
+        resolved_config = config if config is not None else self._explicit_config
+        client = (
+            get_embedding_client(resolved_config)
+            if resolved_config is not None
+            else get_embedding_client()
+        )
         if client is not self._client:
             self._bind_client(client)
         return self._client
@@ -107,7 +118,9 @@ class CustomEmbedding(BaseEmbedding):
 
     async def _aget_text_embeddings(self, texts: List[str]) -> List[List[float]]:
         client = self.refresh_client()
-        embeddings = await client.embed(texts, progress_callback=self._progress_callback)
+        embeddings = await client.embed(
+            texts, progress_callback=self._progress_callback
+        )
         return validate_embedding_batch(
             embeddings,
             expected_count=len(texts),

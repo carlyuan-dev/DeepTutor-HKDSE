@@ -23,6 +23,7 @@ import type {
 
 export interface GeneratePaperOptions {
   kb_name?: string;
+  subject?: string;
   title?: string;
   question_types?: string[];
   num_questions?: number;
@@ -43,7 +44,16 @@ export async function generatePaper(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(options),
   });
+  return readPaperResponse(res, onProgress);
+}
 
+/** Read the progress/done/error NDJSON contract shared by paper generators.
+ * Oral streams use a different event and cancellation lifecycle and stay separate.
+ */
+async function readPaperResponse(
+  res: Response,
+  onProgress: (message: string) => void
+): Promise<ExamPaper> {
   if (!res.ok || !res.body) {
     throw new Error(`Server error ${res.status}`);
   }
@@ -80,12 +90,13 @@ export async function generatePaper(
 
 export async function gradeSubmission(
   questions: Question[],
-  student_answers: StudentAnswers
+  student_answers: StudentAnswers,
+  context: { passage?: string; subject?: string; kb_name?: string } = {}
 ): Promise<GradeResult> {
   const res = await fetch(apiUrl("/api/v1/exam-grader/grade"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ questions, student_answers }),
+    body: JSON.stringify({ questions, student_answers, ...context }),
   });
   const data = await res.json();
   if (data.error) throw new Error(data.error);
@@ -166,7 +177,13 @@ export async function gradeEnglishEssay(
     body: JSON.stringify(req),
   });
   const data = await res.json();
-  if (data.error) throw new Error(data.error);
+  if (data.error || !res.ok) {
+    const requestId = data.grading?.request_id;
+    const message = data.error || "Grading request failed";
+    throw Object.assign(new Error(requestId ? `${message} (Reference: ${requestId})` : message), {
+      retryable: data.retryable === true,
+    });
+  }
   return data as EnglishEssayResult;
 }
 
@@ -179,27 +196,7 @@ export async function generateEnglishPaper(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(options),
   });
-  if (!res.ok || !res.body) throw new Error(`Server error ${res.status}`);
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      const event = JSON.parse(line);
-      if (event.type === "progress") onProgress(event.message);
-      else if (event.type === "done") return event.paper as ExamPaper;
-      else if (event.type === "error") throw new Error(event.message);
-    }
-  }
-  throw new Error("Stream ended without a paper");
+  return readPaperResponse(res, onProgress);
 }
 
 // ── HKDSE English Oral Practice ────────────────────────────────────────────
@@ -322,6 +319,7 @@ export async function checkMathSteps(
 export async function generateChinesePaper(
   options: {
     kb_name?: string;
+    topic_focus?: string;
     title?: string;
     passage_type?: string;
     question_types?: string[];
@@ -335,25 +333,5 @@ export async function generateChinesePaper(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(options),
   });
-  if (!res.ok || !res.body) throw new Error(`Server error ${res.status}`);
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      const event = JSON.parse(line);
-      if (event.type === "progress") onProgress(event.message);
-      else if (event.type === "done") return event.paper as ExamPaper;
-      else if (event.type === "error") throw new Error(event.message);
-    }
-  }
-  throw new Error("Stream ended without a paper");
+  return readPaperResponse(res, onProgress);
 }

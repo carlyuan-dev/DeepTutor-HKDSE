@@ -1,0 +1,4 @@
+short_description: "Score a saved Mathematics attempt against its server-only answer key and update progress exactly once."
+when_to_use: "Required immediately after ask_user returns one A-D answer for every question. Do not calculate correctness yourself or finish before this tool returns the authoritative score."
+input_format: "attempt_id exactly as returned; answers=[{question_id, answer}]."
+guideline: "Do not infer or send an answer key. Submit only the learner's choices, then use the scored observation to decide whether to continue or finish."

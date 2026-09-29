@@ -631,7 +631,13 @@ class OpenAICompatProvider(LLMProvider):
         msg = (
             f"Error: {body_text.strip()[:500]}" if body_text.strip() else f"Error calling LLM: {e}"
         )
-        return LLMResponse(content=msg, finish_reason="error")
+        status = getattr(e, "status_code", None)
+        request_id = getattr(e, "request_id", None)
+        return LLMResponse(
+            content=msg, finish_reason="error",
+            error_status_code=status if type(status) is int and 100 <= status <= 599 else None,
+            error_request_id=request_id if isinstance(request_id, str) and len(request_id) <= 128 and all(c.isascii() and (c.isalnum() or c in "-_") for c in request_id) else None,
+        )
 
     # ------------------------------------------------------------------
     # Public API

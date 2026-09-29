@@ -1,0 +1,4 @@
+short_description: "创建或恢复服务端保存的数学诊断/练习，答案键不会返回给学生端。"
+when_to_use: "读取学习状态后使用；无服务端历史时选 diagnostic，否则针对用户指定或薄弱知识点选 practice。返回题目后的下一项必需动作是 ask_user；不得自行泄露答案或代答。"
+input_format: "activity=diagnostic|practice；可选 topics；num_questions=1..10；budget_minutes；可选已挂载 kb_name。"
+guideline: "返回后用 ask_user 展示题目并等待作答；若返回未完成 attempt，必须复用而非重复生成。"

@@ -1,0 +1,4 @@
+short_description: "讲解一个数学概念并给出例题，可选使用已挂载知识库作为依据。"
+when_to_use: "学生明确要求先讲解，或保存状态显示概念薄弱时使用；若请求包含练习，讲解后继续出题。"
+input_format: "concept；可选已挂载 kb_name。"
+guideline: "分别看待 grounded 与 retrieval_status；knowledge_references 为空时不得声称有资料引用。"

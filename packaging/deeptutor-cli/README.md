@@ -1,18 +1,5 @@
-# deeptutor-cli
+# CLI 打包配置
 
-CLI-only DeepTutor distribution. It installs the `deeptutor` command and the
-Python modules required for terminal workflows, RAG, document parsing, and model
-provider integrations, but it does not ship the packaged Next.js Web assets or
-FastAPI/Uvicorn server dependencies used by `deeptutor start`.
+此目录提供 CLI-only 打包配置。使用完整 Web 应用时，请在仓库根安装源码并运行 `python -m deeptutor_cli start`。本项目尚未向 PyPI 发布独立版本。
 
-Install from the repository root when you want a local CLI-only environment:
-
-```bash
-python3 -m venv .venv-cli
-source .venv-cli/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e ./packaging/deeptutor-cli
-```
-
-Keep the checkout in place after installation because editable installs point
-the `deeptutor` command at these source files.
+CLI-only 不包含完整 Web 工作台，请勿用它代替根目录的安装步骤。配置与能力边界见仓库根的 README 和 docs/DEVELOPMENT.md。

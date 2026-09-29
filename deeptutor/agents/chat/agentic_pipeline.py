@@ -1383,6 +1383,13 @@ class AgenticChatPipeline:
                 kb_schema = properties.get("kb_name")
                 if isinstance(kb_schema, dict):
                     kb_schema["enum"] = kb_choices
+            if function.get("name") in {
+                "create_math_practice",
+                "explain_math_concept",
+            } and isinstance(properties, dict):
+                kb_schema = properties.get("kb_name")
+                if isinstance(kb_schema, dict) and kb_choices:
+                    kb_schema["enum"] = kb_choices
             if function.get("name") == "read_source" and isinstance(properties, dict):
                 sid_schema = properties.get("source_id")
                 if isinstance(sid_schema, dict) and source_ids:
@@ -1546,6 +1553,22 @@ class AgenticChatPipeline:
             # server-side.
             kwargs["conversation_history"] = list(context.conversation_history or [])
             kwargs["current_user_message"] = context.user_message or ""
+        elif tool_name in {
+            "get_learning_state",
+            "create_math_practice",
+            "submit_math_answer",
+            "explain_math_concept",
+        }:
+            # Identity is read from the authenticated ContextVar inside the
+            # service. The model receives neither user_id nor a writable
+            # session selector; both turn/session context and language are
+            # authoritative server-side values.
+            kwargs["session_id"] = context.session_id
+            kwargs["language"] = context.language or "en"
+            if tool_name in {"create_math_practice", "explain_math_concept"}:
+                selected_kbs = set(self._selected_kbs(context))
+                if kwargs.get("kb_name") not in selected_kbs:
+                    kwargs.pop("kb_name", None)
         elif tool_name == "geogebra_analysis":
             # The LLM never has access to the raw image bytes — we
             # unconditionally inject the first image attachment's base64

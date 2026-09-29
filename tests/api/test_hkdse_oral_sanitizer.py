@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-import deeptutor.api.routers.hkdse_english as hkdse_english
-from deeptutor.api.routers.hkdse_english import (
+from deeptutor.api.routers.hkdse_english import oral as hkdse_english
+from deeptutor.api.routers.hkdse_english.oral import (
     OralTurnRequest,
     OralStreamingSanitizer,
     _apply_low_participation_feedback_cap,
@@ -30,16 +30,23 @@ def _stream_clean(chunks: list[str]) -> str:
     return "".join(output)
 
 
-def test_load_oral_topics_uses_packaged_default() -> None:
+def test_load_oral_topics_uses_packaged_default(monkeypatch) -> None:
     hkdse_english._ORAL_TOPICS_CACHE = None
-
-    topics = _load_oral_topics()
-
-    assert topics
-    assert any(topic.get("id") == "2019_1.1" for topic in topics)
-    sample = next(topic for topic in topics if topic.get("id") == "2019_1.1")
-    assert sample["guiding_questions"]
-    assert sample["part_b_questions"]
+    monkeypatch.setattr(hkdse_english, "_oral_topic_candidate_paths",
+                        lambda: [hkdse_english._ORAL_TOPICS_BUILTIN_PATH])
+    try:
+        topics = _load_oral_topics()
+        assert {topic["category"] for topic in topics} == {
+            "education", "technology", "environment", "social_issues",
+        }
+        assert len({topic["id"] for topic in topics}) == len(topics)
+        for sample in topics:
+            assert sample["prompt"].strip()
+            assert sample["discussion_task"].strip()
+            assert len(sample["guiding_questions"]) >= 3
+            assert len(sample["part_b_questions"]) >= 3
+    finally:
+        hkdse_english._ORAL_TOPICS_CACHE = None
 
 
 def test_load_oral_topics_prefers_runtime_import(monkeypatch, tmp_path: Path) -> None:

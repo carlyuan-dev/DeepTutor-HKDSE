@@ -1,0 +1,4 @@
+short_description: "Create or recover a server-backed Mathematics diagnostic/practice attempt whose answers remain private."
+when_to_use: "After reading learning state; use diagnostic when no server history exists, otherwise practice the requested or weak topics. After this returns questions, the next required action is ask_user; do not reveal or solve them yourself."
+input_format: "activity=diagnostic|practice; optional topics; num_questions=1..10; budget_minutes; optional attached kb_name."
+guideline: "After it returns, ask the questions with ask_user. Reuse a returned pending attempt instead of generating another one."

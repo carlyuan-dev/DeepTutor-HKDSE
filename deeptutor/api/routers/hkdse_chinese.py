@@ -11,6 +11,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from deeptutor.services.llm import complete as llm_complete
+from deeptutor.services.retrieval_context import retrieve_context
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -173,17 +174,27 @@ class GeneratePaperRequest(BaseModel):
     question_types: list[str] = ["mcq", "short_answer"]
     num_questions: int = 8
     difficulty: str = "medium"
+    topic_focus: str = ""
 
 
-async def _rag_retrieve(kb_name: str, query: str) -> str:
-    try:
-        from deeptutor.services.rag.service import RAGService
-        svc = RAGService()
-        result = await svc.search(query=query, kb_name=kb_name)
-        return result.get("content") or result.get("answer") or ""
-    except Exception as e:
-        logger.warning(f"RAG failed for chinese paper-gen: {e}")
-        return ""
+_LANGUAGE_FORM_BY_PASSAGE_TYPE = {
+    "白話文": "vernacular",
+    "文言文": "classical",
+}
+
+
+async def _rag_retrieve(
+    kb_name: str,
+    query: str,
+    *,
+    metadata_constraints: dict[str, str] | None = None,
+) -> str:
+    return await retrieve_context(
+        kb_name, query, logger=logger,
+        metadata_constraints=metadata_constraints,
+        constraint_label="Chinese paper-gen",
+        failure_message="RAG failed for chinese paper-gen: %s",
+    )
 
 
 @router.post("/generate-paper")
@@ -196,7 +207,18 @@ async def generate_paper(req: GeneratePaperRequest):
 
             context = ""
             if req.kb_name:
-                context = await _rag_retrieve(req.kb_name, req.passage_type or "閱讀理解")
+                passage_type = req.passage_type or "閱讀理解"
+                language_form = _LANGUAGE_FORM_BY_PASSAGE_TYPE.get(
+                    passage_type, passage_type
+                )
+                query = passage_type
+                if req.topic_focus:
+                    query += f"\n弱項練習重點：{req.topic_focus}"
+                context = await _rag_retrieve(
+                    req.kb_name,
+                    query,
+                    metadata_constraints={"language_form": language_form},
+                )
 
             yield json.dumps({"type": "progress", "message": "正在生成閱讀篇章和試題..."}, ensure_ascii=False) + "\n"
 
@@ -211,6 +233,10 @@ async def generate_paper(req: GeneratePaperRequest):
             }
 
             passage_label = req.passage_type
+            focus_instruction = (
+                f"弱項練習重點：{req.topic_focus}。請針對這些弱項設計篇章和題目。\n"
+                if req.topic_focus else ""
+            )
             user_prompt = (
                 f"請生成一份 HKDSE 中國語文科 卷一閱讀理解試卷。\n"
                 f"試卷標題：{req.title}\n"
@@ -218,6 +244,7 @@ async def generate_paper(req: GeneratePaperRequest):
                 f"難度：{req.difficulty}\n"
                 f"題目數量：{req.num_questions} 題\n"
                 f"題型：{', '.join(req.question_types)}\n"
+                f"{focus_instruction}"
                 f"{'參考資料：' + context[:3000] if context else ''}\n"
                 f"\n要求：\n"
                 f"- 生成一篇完整的閱讀篇章（白話文約800字/文言文約300字）\n"

@@ -1,0 +1,4 @@
+short_description: "Explain a Mathematics concept with a worked example, optionally grounded in an attached knowledge base."
+when_to_use: "When the learner requests explanation first or the saved state indicates a concept gap; follow with practice when the request asks for it."
+input_format: "concept; optional attached kb_name."
+guideline: "Treat grounded and retrieval_status separately; never claim a source citation when knowledge_references is empty."

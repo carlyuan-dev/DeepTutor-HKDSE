@@ -25,6 +25,21 @@ export interface ExamPaper {
 // Student answers: question_id → answer string
 export type StudentAnswers = Record<string, string>;
 
+export type LearningLoopEntry = "/market/paper-forge"
+  | "/market/hkdse/chinese/paper-generator"
+  | "/market/hkdse/english/paper-generator";
+
+export interface LearningLoopPractice {
+  id: string;
+  subject: string;
+  kb_name: string;
+  entry: LearningLoopEntry;
+  paper: ExamPaper;
+  answers: StudentAnswers;
+  weak_topics: string[];
+  result?: GradeResult;
+}
+
 // ── ExamGrader ────────────────────────────────────────────────────────────────
 
 export interface QuestionFeedback {
@@ -121,11 +136,27 @@ export interface EnglishEssayRequest {
   title: string;
   essay: string;
   genre: "argument" | "letter" | "report" | "article";
+  mode?: "single" | "review";
 }
 
 // HKDSE Paper 2 uses the Content / Language / Organisation (C/L/O) rubric,
 // which is structurally different from the Chinese 內容/表達/組織 rubric.
 export interface EnglishEssayResult {
+  grading?: {
+    requested_mode: "single" | "review";
+    strategy_used: "balanced" | "median" | "none";
+    review_status: "not_requested" | "complete" | "incomplete" | "failed";
+    request_id: string;
+    failures: Array<{ persona: string; category: string; status_code: number | null; provider_request_id: string | null; request_id: string }>;
+  };
+  ensemble?: {
+    method: string;
+    agents: string[];
+    agreement_level: string;
+    overall_agreement: number;
+    review_recommended: boolean;
+  };
+  reflection?: ReflectionInfo;
   content: DimensionScore;
   language: DimensionScore;
   organisation: DimensionScore;
@@ -140,6 +171,7 @@ export interface EnglishEssayResult {
 
 export interface GenerateEnglishPaperRequest {
   kb_name?: string;
+  topic_focus?: string;
   title?: string;
   passage_type?: "informational" | "argumentative" | "narrative";
   question_types?: string[];
@@ -243,6 +275,8 @@ export interface OralFeedbackResult {
 // ── localStorage keys ─────────────────────────────────────────────────────────
 
 export const STORAGE_KEYS = {
+  learningLoop: "dtmarket_learning_loop",
+  learningLoopResult: "dtmarket_learning_loop_result:",
   paper: "dtmarket_paper",
   answers: "dtmarket_answers",
   result: "dtmarket_result",

@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, FileText, Layers, Loader2, RotateCcw } from "lucide-react";
 import { applyRating, generateCards } from "@/lib/market-api";
-import type { Flashcard, SMRating } from "@/types/market";
+import { listKnowledgeBases } from "@/lib/knowledge-api";
+import { isCurrentPractice, LEARNING_LOOP_CHANGE, LEARNING_LOOP_RESULT_CHANGE, readPractice, RESTART_MESSAGE, retakeUrl } from "@/lib/learning-loop-context";
+import type { Flashcard, LearningLoopPractice, SMRating } from "@/types/market";
 import { STORAGE_KEYS } from "@/types/market";
 
 type Stage = "loading" | "generating" | "review" | "complete" | "error";
@@ -29,63 +31,113 @@ export default function FlashDeckPage() {
   const [manualTopics, setManualTopics] = useState("");
   const [kbName, setKbName] = useState("");
   const [kbList, setKbList] = useState<string[]>([]);
-  const didInit = useRef(false);
+  const practiceRef = useRef<LearningLoopPractice | null>(null);
+  const generationRef = useRef(0);
+  const [kbReady, setKbReady] = useState(false);
 
   useEffect(() => {
-    if (didInit.current) return;
-    didInit.current = true;
+    let active = true;
+    const current = readPractice();
+    practiceRef.current = current;
+    const topics = current?.weak_topics ?? [];
+    setWeakTopics(topics);
+    setManualTopics(topics.join(", "));
+    setKbName(current?.kb_name ?? "");
+    if (!current) setError(RESTART_MESSAGE);
 
-    // Load knowledge bases for manual mode
-    import("@/lib/knowledge-api").then(({ listKnowledgeBases }) => {
-      listKnowledgeBases().then((kbs: { name: string }[]) => {
-        const names = kbs.map((kb) => kb.name);
-        setKbList(names);
-        if (names.length > 0) setKbName(names[0]);
-      });
-    });
+    const invalidate = () => {
+      active = false;
+      generationRef.current += 1;
+      setCards([]);
+      setWeakTopics([]);
+      setManualTopics("");
+      setKbReady(false);
+      setError(RESTART_MESSAGE);
+      setStage("error");
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key === STORAGE_KEYS.learningLoop
+        || (current && event.key === STORAGE_KEYS.learningLoopResult + current.id)) invalidate();
+    };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(LEARNING_LOOP_CHANGE, invalidate);
+    window.addEventListener(LEARNING_LOOP_RESULT_CHANGE, invalidate);
 
-    // Try to get weak topics from localStorage
-    const raw = localStorage.getItem(STORAGE_KEYS.weakTopics);
-    if (raw) {
-      try {
-        const topics: string[] = JSON.parse(raw);
-        setWeakTopics(topics);
-        setManualTopics(topics.join(", "));
-        // Auto-generate if topics present
-        generateFromTopics(topics, undefined, 15);
-      } catch {
-        setStage("loading"); // fall through to manual
+    listKnowledgeBases().then((kbs: { name: string }[]) => {
+      if (!active) return;
+      const names = kbs.map((kb) => kb.name);
+      setKbList(names);
+      if (!current && names.length > 0) setKbName((previous) => previous || names[0]);
+      setKbReady(true);
+      if (current?.kb_name && !names.includes(current.kb_name)) {
+        setError("The original knowledge base is unavailable. Select one explicitly or start again.");
+        return;
       }
-    } else {
-      setStage("loading");
-    }
+      if (current && topics.length) generateFromTopics(topics, current.kb_name || undefined, 15);
+    }).catch(() => {
+      if (active) setError("Could not load knowledge bases. Please try again.");
+    });
+    return () => {
+      active = false;
+      generationRef.current += 1;
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(LEARNING_LOOP_CHANGE, invalidate);
+      window.removeEventListener(LEARNING_LOOP_RESULT_CHANGE, invalidate);
+    };
   }, []);
 
   const generateFromTopics = async (topics: string[], kb?: string, count = 15) => {
     if (!topics.length) return;
+    const id = practiceRef.current?.id;
+    if (id && !isCurrentPractice(id)) {
+      setError(RESTART_MESSAGE);
+      setStage("error");
+      return;
+    }
+    const generation = ++generationRef.current;
+    const isActive = () => generation === generationRef.current
+      && (id ? isCurrentPractice(id) : readPractice() === null);
+    setError("");
     setStage("generating");
     setFlipped(false);
     setCurrentIdx(0);
     setRatings([]);
     try {
       const generated = await generateCards(topics, kb, count);
+      if (!isActive()) return;
       if (!generated.length) throw new Error("No cards generated");
       setCards(generated);
-      localStorage.setItem(STORAGE_KEYS.flashcards, JSON.stringify(generated));
+      // Per-practice writes cannot replace another tab's current deck.
+      if (id) localStorage.setItem(`${STORAGE_KEYS.flashcards}:${id}`, JSON.stringify(generated));
       setStage("review");
     } catch (e: unknown) {
+      if (!isActive()) return;
       setError(e instanceof Error ? e.message : "Card generation failed");
       setStage("error");
     }
   };
 
   const handleGenerate = () => {
+    if (!kbReady || (kbName && !kbList.includes(kbName))) {
+      setError("Knowledge base is unavailable. Please select one explicitly or start again.");
+      return;
+    }
     const topics = manualTopics
       .split(/[,\n]+/)
       .map((t) => t.trim())
       .filter(Boolean);
     if (!topics.length) return;
     generateFromTopics(topics, kbName || undefined, 15);
+  };
+
+  const goRetake = () => {
+    const current = practiceRef.current;
+    if (!current || !isCurrentPractice(current.id)) {
+      setError(RESTART_MESSAGE);
+      setStage("error");
+      return;
+    }
+    router.push(retakeUrl(current));
   };
 
   const handleRate = (rating: SMRating) => {
@@ -140,6 +192,7 @@ export default function FlashDeckPage() {
       {/* ── Loading / Manual config ── */}
       {stage === "loading" && (
         <div className="max-w-md space-y-5">
+          {error && <p className="text-sm text-red-400">{error}</p>}
           {weakTopics.length > 0 && (
             <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-xs text-yellow-400">
               Weak topics from ExamGrader: {weakTopics.join(", ")}
@@ -155,7 +208,7 @@ export default function FlashDeckPage() {
               onChange={(e) => setManualTopics(e.target.value)}
             />
           </div>
-          {kbList.length > 0 && (
+          {(kbList.length > 0 || kbName) && (
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-[var(--muted-foreground)]">Knowledge Base <span className="text-[var(--muted-foreground)]/50">(optional)</span></label>
               <select
@@ -164,6 +217,7 @@ export default function FlashDeckPage() {
                 onChange={(e) => setKbName(e.target.value)}
               >
                 <option value="">None</option>
+                {kbName && !kbList.includes(kbName) && <option value={kbName}>{kbName} (unavailable)</option>}
                 {kbList.map((kb) => <option key={kb} value={kb}>{kb}</option>)}
               </select>
             </div>
@@ -191,8 +245,8 @@ export default function FlashDeckPage() {
       {stage === "error" && (
         <div className="flex flex-1 flex-col items-center justify-center gap-4">
           <p className="text-sm text-red-400">{error}</p>
-          <button onClick={() => setStage("loading")} className="text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
-            Try again
+          <button onClick={() => window.location.reload()} className="text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+            Reload practice
           </button>
         </div>
       )}
@@ -293,7 +347,7 @@ export default function FlashDeckPage() {
               Review Again
             </button>
             <button
-              onClick={() => router.push("/market/paper-forge")}
+              onClick={goRetake}
               className="flex items-center gap-2 rounded-lg bg-blue-500 px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
             >
               <FileText size={14} />

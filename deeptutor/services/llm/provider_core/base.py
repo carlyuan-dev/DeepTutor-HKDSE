@@ -51,6 +51,8 @@ class LLMResponse:
     usage: dict[str, int] = field(default_factory=dict)
     reasoning_content: str | None = None
     thinking_blocks: list[dict[str, Any]] | None = None
+    error_status_code: int | None = None
+    error_request_id: str | None = None
 
     @property
     def has_tool_calls(self) -> bool:

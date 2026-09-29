@@ -11,6 +11,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from deeptutor.services.llm import complete as llm_complete
+from deeptutor.services.retrieval_context import retrieve_context
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -31,14 +32,7 @@ class GenerateCardsRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 async def _rag_retrieve(kb_name: str, query: str) -> str:
-    try:
-        from deeptutor.services.rag.service import RAGService
-        service = RAGService()
-        result = await service.search(query=query, kb_name=kb_name)
-        return result.get("content") or result.get("answer") or ""
-    except Exception as exc:
-        logger.warning(f"RAG retrieval failed (degrading to LLM-only): {exc}")
-        return ""
+    return await retrieve_context(kb_name, query, logger=logger)
 
 
 # ---------------------------------------------------------------------------

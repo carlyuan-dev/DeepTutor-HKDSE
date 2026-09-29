@@ -13,8 +13,9 @@ import {
   XCircle,
 } from "lucide-react";
 import { gradeSubmission } from "@/lib/market-api";
-import type { ExamPaper, GradeResult, StudentAnswers } from "@/types/market";
+import type { ExamPaper, GradeResult, LearningLoopPractice, StudentAnswers } from "@/types/market";
 import { STORAGE_KEYS } from "@/types/market";
+import { isCurrentPractice, LEARNING_LOOP_CHANGE, readPractice, RESTART_MESSAGE, retakeUrl, savePracticeResult } from "@/lib/learning-loop-context";
 
 type Stage = "loading" | "grading" | "result" | "error";
 
@@ -25,43 +26,76 @@ export default function ExamGraderPage() {
   const [answers, setAnswers] = useState<StudentAnswers>({});
   const [result, setResult] = useState<GradeResult | null>(null);
   const [error, setError] = useState("");
+  const [practice, setPractice] = useState<LearningLoopPractice | null>(null);
 
-  // Load paper + answers from localStorage, then auto-grade
   useEffect(() => {
-    const rawPaper = localStorage.getItem(STORAGE_KEYS.paper);
-    const rawAnswers = localStorage.getItem(STORAGE_KEYS.answers);
-    if (!rawPaper || !rawAnswers) {
-      setError("No submission found. Please go back to PaperForge.");
-      setStage("error");
-      return;
-    }
-    try {
-      const p: ExamPaper = JSON.parse(rawPaper);
-      const a: StudentAnswers = JSON.parse(rawAnswers);
-      setPaper(p);
-      setAnswers(a);
+    let active = true;
+    let sequence = 0;
+    const load = () => {
+      const request = ++sequence;
+      const current = readPractice();
+      setPractice(current);
+      setResult(null);
+      setError("");
+      setPaper(current?.paper ?? null);
+      setAnswers(current?.answers ?? {});
+      if (!current) {
+        setError(RESTART_MESSAGE);
+        setStage("error");
+        return;
+      }
+      if (current.result) {
+        setResult(current.result);
+        setStage("result");
+        return;
+      }
       setStage("grading");
-      gradeSubmission(p.questions, a)
+      const isActive = () => active && request === sequence && isCurrentPractice(current.id);
+      gradeSubmission(current.paper.questions, current.answers, {
+        passage: current.paper.passage, subject: current.subject, kb_name: current.kb_name || undefined,
+      })
         .then((res) => {
+          if (!isActive() || !savePracticeResult(current.id, res) || !isActive()) return;
           setResult(res);
-          localStorage.setItem(STORAGE_KEYS.result, JSON.stringify(res));
-          if (res.weak_topics?.length) {
-            localStorage.setItem(STORAGE_KEYS.weakTopics, JSON.stringify(res.weak_topics));
-          }
           setStage("result");
         })
         .catch((e: unknown) => {
+          if (!isActive()) return;
           setError(e instanceof Error ? e.message : "Grading failed");
           setStage("error");
         });
-    } catch {
-      setError("Failed to parse submission data.");
-      setStage("error");
-    }
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key === STORAGE_KEYS.learningLoop) load();
+    };
+    load();
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(LEARNING_LOOP_CHANGE, load);
+    return () => {
+      active = false;
+      sequence += 1;
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(LEARNING_LOOP_CHANGE, load);
+    };
   }, []);
 
-  const goFlashDeck = () => router.push("/market/flash-deck");
-  const goRetake = () => router.push("/market/paper-forge");
+  const currentResultPractice = () => {
+    const current = readPractice();
+    if (!practice || !current || current.id !== practice.id || !current.result) {
+      setResult(null);
+      setError(RESTART_MESSAGE);
+      setStage("error");
+      return null;
+    }
+    return current;
+  };
+  const goFlashDeck = () => {
+    if (currentResultPractice()) router.push("/market/flash-deck");
+  };
+  const goRetake = () => {
+    const current = currentResultPractice();
+    if (current) router.push(retakeUrl(current));
+  };
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 

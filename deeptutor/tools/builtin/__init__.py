@@ -993,6 +993,213 @@ class GithubTool(_PromptHintsMixin, BaseTool):
         )
 
 
+def _learning_failure(exc: Exception) -> ToolResult:
+    """Convert a learning-service error into an observation the agent can recover from."""
+
+    return ToolResult(
+        content=json.dumps(
+            {"error": str(exc), "error_type": type(exc).__name__}, ensure_ascii=False
+        ),
+        metadata={"learning_error": type(exc).__name__},
+        success=False,
+    )
+
+
+class GetLearningStateTool(_PromptHintsMixin, BaseTool):
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="get_learning_state",
+            description=(
+                "Read the authenticated learner's saved Mathematics state, weak-topic "
+                "performance estimates, last result, and any unfinished attempt."
+            ),
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        from deeptutor.services.learning import get_learning_service
+
+        try:
+            result = await get_learning_service().get_state(
+                chat_session_id=str(kwargs.get("session_id") or "")
+            )
+        except Exception as exc:  # noqa: BLE001 - tool errors must return observations
+            return _learning_failure(exc)
+        return ToolResult(
+            content=json.dumps(result, ensure_ascii=False),
+            metadata={"learning_state": result},
+        )
+
+
+class CreateMathPracticeTool(_PromptHintsMixin, BaseTool):
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="create_math_practice",
+            description=(
+                "Create or recover a server-backed Mathematics diagnostic/practice "
+                "attempt. Correct answers stay server-side."
+            ),
+            parameters=[
+                ToolParameter(
+                    name="activity",
+                    type="string",
+                    description="Use diagnostic when there is no saved history; otherwise practice.",
+                    enum=["diagnostic", "practice"],
+                ),
+                ToolParameter(
+                    name="topics",
+                    type="array",
+                    description="One or more Mathematics topic names; omit to use weak topics.",
+                    required=False,
+                    items={"type": "string"},
+                ),
+                ToolParameter(
+                    name="num_questions",
+                    type="integer",
+                    description="Number of objective questions, from 1 to 10.",
+                    required=False,
+                    default=3,
+                ),
+                ToolParameter(
+                    name="budget_minutes",
+                    type="integer",
+                    description="Study-plan budget in minutes; this is not a live countdown.",
+                    required=False,
+                    default=15,
+                ),
+                ToolParameter(
+                    name="kb_name",
+                    type="string",
+                    description="Optional attached knowledge base to ground question generation.",
+                    required=False,
+                ),
+            ],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        from deeptutor.services.learning import get_learning_service
+
+        try:
+            result = await get_learning_service().create_attempt(
+                chat_session_id=str(kwargs.get("session_id") or ""),
+                activity=str(kwargs.get("activity") or "practice"),
+                topics=[str(item) for item in (kwargs.get("topics") or [])],
+                num_questions=kwargs.get("num_questions", 3),
+                kb_name=kwargs.get("kb_name"),
+                language=str(kwargs.get("language") or "en"),
+                budget_minutes=kwargs.get("budget_minutes", 15),
+            )
+        except Exception as exc:  # noqa: BLE001 - tool errors must return observations
+            return _learning_failure(exc)
+        references = result.get("knowledge_references") or []
+        return ToolResult(
+            content=json.dumps(result, ensure_ascii=False),
+            metadata={"learning_attempt": result},
+            sources=[dict(item) for item in references if isinstance(item, dict)],
+        )
+
+
+class SubmitMathAnswerTool(_PromptHintsMixin, BaseTool):
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="submit_math_answer",
+            description=(
+                "Submit answers to a saved Mathematics attempt for deterministic "
+                "server-side scoring and an idempotent learning-record update."
+            ),
+            parameters=[
+                ToolParameter(
+                    name="attempt_id",
+                    type="string",
+                    description="Exact attempt_id returned by create_math_practice.",
+                ),
+                ToolParameter(
+                    name="answers",
+                    type="array",
+                    description="One answer per question, using the saved question id and A-D.",
+                    items={
+                        "type": "object",
+                        "properties": {
+                            "question_id": {"type": "string"},
+                            "answer": {"type": "string", "enum": ["A", "B", "C", "D"]},
+                        },
+                        "required": ["question_id", "answer"],
+                        "additionalProperties": False,
+                    },
+                ),
+            ],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        from deeptutor.services.learning import LearningValidationError, get_learning_service
+
+        try:
+            raw_answers = kwargs.get("answers") or []
+            if not isinstance(raw_answers, list):
+                raise LearningValidationError("answers must be an array.")
+            answers: dict[str, str] = {}
+            for entry in raw_answers:
+                if not isinstance(entry, dict):
+                    raise LearningValidationError("Each answer must be an object.")
+                question_id = str(entry.get("question_id") or "").strip()
+                if not question_id or question_id in answers:
+                    raise LearningValidationError("Answer question_ids must be non-empty and unique.")
+                answers[question_id] = str(entry.get("answer") or "")
+            result = await get_learning_service().submit_attempt(
+                attempt_id=str(kwargs.get("attempt_id") or ""),
+                answers=answers,
+                language=str(kwargs.get("language") or "en"),
+            )
+        except Exception as exc:  # noqa: BLE001 - tool errors must return observations
+            return _learning_failure(exc)
+        return ToolResult(
+            content=json.dumps(result, ensure_ascii=False),
+            metadata={"learning_result": result},
+        )
+
+
+class ExplainMathConceptTool(_PromptHintsMixin, BaseTool):
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="explain_math_concept",
+            description=(
+                "Explain one Mathematics concept with a worked example before practice, "
+                "optionally grounded in an attached knowledge base."
+            ),
+            parameters=[
+                ToolParameter(
+                    name="concept",
+                    type="string",
+                    description="The specific Mathematics concept to explain.",
+                ),
+                ToolParameter(
+                    name="kb_name",
+                    type="string",
+                    description="Optional attached knowledge base for grounding.",
+                    required=False,
+                ),
+            ],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        from deeptutor.services.learning import get_learning_service
+
+        try:
+            result = await get_learning_service().explain_concept(
+                chat_session_id=str(kwargs.get("session_id") or ""),
+                concept=str(kwargs.get("concept") or ""),
+                kb_name=kwargs.get("kb_name"),
+                language=str(kwargs.get("language") or "en"),
+            )
+        except Exception as exc:  # noqa: BLE001 - tool errors must return observations
+            return _learning_failure(exc)
+        references = result.get("knowledge_references") or []
+        return ToolResult(
+            content=json.dumps(result, ensure_ascii=False),
+            metadata={"learning_explanation": result},
+            sources=[dict(item) for item in references if isinstance(item, dict)],
+        )
+
+
 class AskUserTool(_PromptHintsMixin, BaseTool):
     """Pause the turn mid-loop to ask the user a clarifying question.
 
@@ -1120,6 +1327,10 @@ BUILTIN_TOOL_TYPES: tuple[type[BaseTool], ...] = (
     ListNotebookTool,
     WriteNoteTool,
     GithubTool,
+    GetLearningStateTool,
+    ExplainMathConceptTool,
+    CreateMathPracticeTool,
+    SubmitMathAnswerTool,
     AskUserTool,
 )
 
@@ -1168,13 +1379,17 @@ __all__ = [
     "BrainstormTool",
     "CodeExecutionTool",
     "GeoGebraAnalysisTool",
+    "GetLearningStateTool",
     "GithubTool",
+    "CreateMathPracticeTool",
+    "ExplainMathConceptTool",
     "ListNotebookTool",
     "PaperSearchToolWrapper",
     "RAGTool",
     "ReadMemoryTool",
     "ReadSourceTool",
     "ReasonTool",
+    "SubmitMathAnswerTool",
     "WebFetchTool",
     "WebSearchTool",
     "WriteMemoryTool",

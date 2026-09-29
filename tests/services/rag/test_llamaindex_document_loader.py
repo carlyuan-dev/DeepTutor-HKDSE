@@ -79,6 +79,68 @@ def test_loader_extracts_chat_supported_office_files(tmp_path: Path) -> None:
     assert "Slide body" in all_text
 
 
+def test_loader_attaches_only_explicit_supported_retrieval_metadata(tmp_path: Path) -> None:
+    from deeptutor.services.rag.pipelines.llamaindex.document_loader import (
+        LlamaIndexDocumentLoader,
+    )
+
+    text_path = tmp_path / "story.txt"
+    text_path.write_text("A school journey.", encoding="utf-8")
+
+    documents = asyncio.run(
+        LlamaIndexDocumentLoader().load(
+            [str(text_path)],
+            metadata_by_path={
+                str(text_path): {"subject": "english", "genre": "narrative"}
+            },
+        )
+    )
+
+    assert len(documents) == 1
+    assert documents[0].metadata == {
+        "file_name": "story.txt",
+        "file_path": str(text_path),
+        "subject": "english",
+        "genre": "narrative",
+    }
+
+
+def test_loader_rejects_unknown_retrieval_metadata_instead_of_guessing(tmp_path: Path) -> None:
+    from deeptutor.services.rag.pipelines.llamaindex.document_loader import (
+        LlamaIndexDocumentLoader,
+    )
+
+    text_path = tmp_path / "history.txt"
+    text_path.write_text("History source.", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unsupported_value:genre"):
+        asyncio.run(
+            LlamaIndexDocumentLoader().load(
+                [str(text_path)],
+                metadata_by_path={str(text_path): {"genre": "history"}},
+            )
+        )
+
+
+def test_loader_validates_explicit_metadata_for_images_before_provider_checks(
+    tmp_path: Path,
+) -> None:
+    from deeptutor.services.rag.pipelines.llamaindex.document_loader import (
+        LlamaIndexDocumentLoader,
+    )
+
+    image_path = tmp_path / "history.png"
+    image_path.write_bytes(b"\x89PNG\r\n")
+
+    with pytest.raises(ValueError, match="unsupported_value:genre"):
+        asyncio.run(
+            LlamaIndexDocumentLoader().load(
+                [str(image_path)],
+                metadata_by_path={str(image_path): {"genre": "history"}},
+            )
+        )
+
+
 def test_loader_skips_images_when_embedding_provider_is_text_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

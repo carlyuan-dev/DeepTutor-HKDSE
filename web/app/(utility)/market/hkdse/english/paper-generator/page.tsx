@@ -6,8 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, CheckCircle, FileText, Loader2 } from "lucide-react";
 import { generateEnglishPaper } from "@/lib/market-api";
 import { listKnowledgeBases } from "@/lib/knowledge-api";
-import type { ExamPaper, Question, StudentAnswers } from "@/types/market";
-import { STORAGE_KEYS } from "@/types/market";
+import type { ExamPaper, LearningLoopPractice, Question, StudentAnswers } from "@/types/market";
+import { isCurrentPractice, readRetake, RESTART_MESSAGE, savePractice } from "@/lib/learning-loop-context";
 
 type Stage = "config" | "generating" | "answer" | "submitting";
 
@@ -33,6 +33,11 @@ export default function EnglishPaperGeneratorPage() {
   const router = useRouter();
   const [kbName, setKbName] = useState("");
   const [kbList, setKbList] = useState<string[]>([]);
+  const [kbReady, setKbReady] = useState(false);
+  const retakeRef = useRef<LearningLoopPractice | null>(null);
+  const generatedRef = useRef<LearningLoopPractice | null>(null);
+  const generationRef = useRef(0);
+  const [topicFocus, setTopicFocus] = useState("");
   const [title, setTitle] = useState("HKDSE English Paper 1");
   const [passageType, setPassageType] = useState("informational");
   const [selectedTypes, setSelectedTypes] = useState(["mcq", "short_answer"]);
@@ -45,42 +50,77 @@ export default function EnglishPaperGeneratorPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    let active = true;
     listKnowledgeBases().then((kbs) => {
+      if (!active) return;
+      const restored = readRetake("/market/hkdse/english/paper-generator");
+      retakeRef.current = restored;
+      if (restored) {
+        setKbName(restored.kb_name);
+        setTopicFocus(restored.weak_topics.join(", "));
+      }
       const names = kbs.map((kb: { name: string }) => kb.name);
       setKbList(names);
-      if (names.length > 0) setKbName(names[0]);
+      if (!restored && names.length > 0) setKbName((previous) => previous || names[0]);
+      if (restored?.kb_name && !names.includes(restored.kb_name)) {
+        setError("The original knowledge base is unavailable. Select a knowledge base explicitly or start again.");
+      }
+      setKbReady(true);
+    }).catch((e: unknown) => {
+      if (active) setError(e instanceof Error ? e.message : "Could not load knowledge bases. Please try again.");
     });
+    return () => { active = false; generationRef.current += 1; };
   }, []);
 
   const toggleType = (t: string) =>
     setSelectedTypes((prev) => prev.includes(t) ? (prev.length > 1 ? prev.filter((x) => x !== t) : prev) : [...prev, t]);
 
   const handleGenerate = async () => {
+    if (retakeRef.current && !isCurrentPractice(retakeRef.current.id)) {
+      setError(RESTART_MESSAGE);
+      return;
+    }
+    if (!kbReady || (kbName && !kbList.includes(kbName))) {
+      setError("Knowledge base is unavailable. Please select one explicitly or start again.");
+      return;
+    }
+    const generation = ++generationRef.current;
+    generatedRef.current = null;
+    const metadata = { id: crypto.randomUUID(), subject: "english", kb_name: kbName,
+      entry: "/market/hkdse/english/paper-generator" as const };
     setError("");
     setStage("generating");
     setProgressMsg("Starting...");
     try {
       const result = await generateEnglishPaper(
         { kb_name: kbName || undefined, title, passage_type: passageType as "informational" | "argumentative" | "narrative",
-          question_types: selectedTypes, num_questions: numQuestions, difficulty },
-        (msg) => setProgressMsg(msg)
+          question_types: selectedTypes, num_questions: numQuestions, difficulty, topic_focus: topicFocus },
+        (msg) => { if (generation === generationRef.current) setProgressMsg(msg); }
       );
+      if (generation !== generationRef.current) return;
+      generatedRef.current = { ...metadata, paper: result, answers: {}, weak_topics: [] };
       setPaper(result);
       const initAnswers: StudentAnswers = {};
       result.questions.forEach((q) => (initAnswers[q.id] = ""));
       setAnswers(initAnswers);
       setStage("answer");
     } catch (e: unknown) {
+      if (generation !== generationRef.current) return;
       setError(e instanceof Error ? e.message : "Generation failed");
       setStage("config");
     }
   };
 
   const handleSubmit = () => {
-    if (!paper) return;
+    if (!paper || !generatedRef.current) return;
     setStage("submitting");
-    localStorage.setItem(STORAGE_KEYS.paper, JSON.stringify(paper));
-    localStorage.setItem(STORAGE_KEYS.answers, JSON.stringify(answers));
+    try {
+      savePractice({ ...generatedRef.current, id: crypto.randomUUID(), answers });
+    } catch {
+      setError("Could not save this practice. Please enable browser storage and try again.");
+      setStage("answer");
+      return;
+    }
     router.push("/market/exam-grader");
   };
 
@@ -109,11 +149,12 @@ export default function EnglishPaperGeneratorPage() {
             <label className="text-xs font-medium text-[var(--muted-foreground)]">Paper Title</label>
             <input className="w-full rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-sky-500/50" value={title} onChange={(e) => setTitle(e.target.value)} />
           </div>
-          {kbList.length > 0 && (
+          {(kbList.length > 0 || kbName) && (
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-[var(--muted-foreground)]">Knowledge Base</label>
               <select className="w-full rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-3 py-2 text-sm text-[var(--foreground)] outline-none" value={kbName} onChange={(e) => setKbName(e.target.value)}>
                 <option value="">None</option>
+                {kbName && !kbList.includes(kbName) && <option value={kbName}>{kbName} (unavailable)</option>}
                 {kbList.map((kb) => (<option key={kb} value={kb}>{kb}</option>))}
               </select>
             </div>

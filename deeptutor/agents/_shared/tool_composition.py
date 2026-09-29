@@ -41,6 +41,10 @@ AUTO_MOUNTED_TOOLS: frozenset[str] = frozenset(
         "ask_user",
         "web_fetch",
         "github",
+        "get_learning_state",
+        "explain_math_concept",
+        "create_math_practice",
+        "submit_math_answer",
     }
 )
 
@@ -118,6 +122,10 @@ def compose_enabled_tools(
     composed.append("write_memory")
     composed.append("web_fetch")
     composed.append("github")
+    composed.append("get_learning_state")
+    composed.append("explain_math_concept")
+    composed.append("create_math_practice")
+    composed.append("submit_math_answer")
     composed.append("ask_user")
     return composed
 

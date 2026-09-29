@@ -34,13 +34,19 @@ class Question(BaseModel):
 class GradeRequest(BaseModel):
     questions: list[Question]
     student_answers: dict[str, str]  # question_id -> student answer
+    passage: str = ""
+    subject: str = ""
+    kb_name: str | None = None
 
 
 # ---------------------------------------------------------------------------
 # Prompt
 # ---------------------------------------------------------------------------
 
-def _build_grade_prompt(questions: list[Question], answers: dict[str, str]) -> str:
+def _build_grade_prompt(
+    questions: list[Question], answers: dict[str, str],
+    passage: str = "", subject: str = "",
+) -> str:
     items = []
     for q in questions:
         student_ans = answers.get(q.id, "").strip() or "(no answer)"
@@ -50,6 +56,7 @@ def _build_grade_prompt(questions: list[Question], answers: dict[str, str]) -> s
             "topic": q.topic,
             "question": q.question,
             "correct_answer": q.answer,
+            "explanation": q.explanation,
             "student_answer": student_ans,
             "max_points": q.points,
         }
@@ -75,9 +82,16 @@ def _build_grade_prompt(questions: list[Question], answers: dict[str, str]) -> s
         "summary": "Overall feedback...",
     }
 
+    context = ""
+    if subject:
+        context += f"Subject: {subject}\n\n"
+    if passage:
+        context += f"Reading passage (use as evidence when grading):\n{passage}\n\n"
+
     return (
         "You are a strict but fair examiner. Grade the following student answers.\n\n"
-        "Questions and answers:\n"
+        + context
+        + "Questions and answers:\n"
         + json.dumps(items, ensure_ascii=False, indent=2)
         + "\n\nGrading rules:\n"
         "- For MCQ: award full points if correct, 0 if wrong.\n"
@@ -101,7 +115,9 @@ async def grade_submission(req: GradeRequest) -> dict[str, Any]:
         system_prompt = (
             "You are an expert examiner. Output only valid JSON — no markdown, no extra text."
         )
-        user_prompt = _build_grade_prompt(req.questions, req.student_answers)
+        user_prompt = _build_grade_prompt(
+            req.questions, req.student_answers, passage=req.passage, subject=req.subject,
+        )
 
         raw = await llm_complete(user_prompt, system_prompt=system_prompt)
 

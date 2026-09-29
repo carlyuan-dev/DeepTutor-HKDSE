@@ -170,7 +170,16 @@ async def test_execute_tool_call_streams_retrieve_progress_for_rag(
     ]
 
 
-_ALWAYS_ON_TOOLS = ["write_memory", "web_fetch", "github", "ask_user"]
+_ALWAYS_ON_TOOLS = [
+    "write_memory",
+    "web_fetch",
+    "github",
+    "get_learning_state",
+    "explain_math_concept",
+    "create_math_practice",
+    "submit_math_answer",
+    "ask_user",
+]
 
 
 def _stub_optional_services(monkeypatch: pytest.MonkeyPatch) -> None:

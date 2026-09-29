@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from deeptutor.services.llm import complete as llm_complete
+from deeptutor.services.retrieval_context import retrieve_context
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -28,6 +29,7 @@ class GenerateRequest(BaseModel):
     num_questions: int = 10
     difficulty: str = "medium"  # easy | medium | hard
     topic_focus: str = ""
+    subject: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -35,14 +37,7 @@ class GenerateRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 async def _rag_retrieve(kb_name: str, query: str) -> str:
-    try:
-        from deeptutor.services.rag.service import RAGService
-        service = RAGService()
-        result = await service.search(query=query, kb_name=kb_name)
-        return result.get("content") or result.get("answer") or ""
-    except Exception as exc:
-        logger.warning(f"RAG retrieval failed (degrading to LLM-only): {exc}")
-        return ""
+    return await retrieve_context(kb_name, query, logger=logger)
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +93,8 @@ def _build_user_prompt(req: GenerateRequest, context: str) -> str:
         f"Question types: {type_desc}.",
         f"Difficulty: {diff_desc}.",
     ]
+    if req.subject:
+        parts.append(f"Subject: {req.subject}.")
     if req.topic_focus:
         parts.append(f"Focus on the topic: {req.topic_focus}.")
     if context:

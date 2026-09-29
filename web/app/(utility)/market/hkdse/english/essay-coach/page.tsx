@@ -28,17 +28,21 @@ export default function EnglishEssayCoachPage() {
   const [genre, setGenre] = useState<EnglishEssayRequest["genre"]>("argument");
   const [result, setResult] = useState<EnglishEssayResult | null>(null);
   const [error, setError] = useState("");
+  const [mode, setMode] = useState<"single" | "review">("single");
+  const [retryable, setRetryable] = useState(false);
 
   const handleSubmit = async () => {
     if (!essay.trim()) return;
     setError("");
+    setRetryable(false);
     setStage("grading");
     try {
-      const res = await gradeEnglishEssay({ title, essay, genre });
+      const res = await gradeEnglishEssay({ title, essay, genre, mode });
       setResult(res);
       setStage("result");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Grading failed");
+      setRetryable(typeof e === "object" && e !== null && "retryable" in e && e.retryable === true);
       setStage("error");
     }
   };
@@ -74,6 +78,18 @@ export default function EnglishEssayCoachPage() {
 
       {stage === "config" && (
         <div className="max-w-2xl space-y-5">
+          <fieldset className="space-y-2 rounded-xl border border-[var(--border)] p-4">
+            <legend className="text-sm">Grading mode</legend>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="radio" name="grading-mode" checked={mode === "single"} onChange={() => setMode("single")} />
+              Balanced only (default)
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="radio" name="grading-mode" checked={mode === "review"} onChange={() => setMode("review")} />
+              Three-rater review (two extra grading calls)
+            </label>
+            <p className="text-xs text-[var(--muted-foreground)]">Both modes also review the overall comment. Review shows disagreement, not proven accuracy improvement.</p>
+          </fieldset>
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-[var(--muted-foreground)]">Genre</label>
             <div className="flex flex-wrap gap-2">
@@ -114,12 +130,19 @@ export default function EnglishEssayCoachPage() {
       {stage === "error" && (
         <div className="flex flex-1 flex-col items-center justify-center gap-4">
           <p className="text-sm text-red-400">{error}</p>
+          {retryable && <button onClick={handleSubmit} className="text-sm text-sky-500">Retry grading</button>}
           <button onClick={() => setStage("config")} className="text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]">Back</button>
         </div>
       )}
 
       {stage === "result" && result && (
         <div className="max-w-2xl space-y-6">
+          {result.grading?.review_status === "incomplete" && (
+            <div role="alert" className="rounded-xl border border-amber-500/30 p-4 text-sm text-amber-500">
+              Review incomplete. Showing the balanced score; no three-rater agreement is available.
+              <p className="mt-1 text-xs">Reference: {result.grading.request_id}</p>
+            </div>
+          )}
           <div className={`rounded-xl border p-6 ${totalScoreBg}`}>
             <div className="flex items-center justify-between">
               <div>
@@ -133,6 +156,20 @@ export default function EnglishEssayCoachPage() {
             </div>
           </div>
 
+          {result.ensemble && typeof result.ensemble.overall_agreement === "number" && (
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--secondary)] p-4">
+              <p className="text-sm font-medium">Rater agreement: {result.ensemble.overall_agreement}/100</p>
+              <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                Based on score differences; not a probability of correctness.
+              </p>
+              {result.ensemble.review_recommended ? (
+                <p role="alert" className="mt-2 text-sm text-amber-500">Manual review recommended: raters disagree substantially.</p>
+              ) : result.ensemble.agreement_level === "moderate" ? (
+                <p className="mt-2 text-xs text-amber-500">Consider reviewing borderline scores.</p>
+              ) : null}
+            </div>
+          )}
+
           <div className="grid grid-cols-3 gap-3">
             {([{key: "content", label: "Content", full: 7}, {key: "language", label: "Language", full: 7}, {key: "organisation", label: "Organisation", full: 7}] as const).map((dim) => {
               const d = result[dim.key as "content" | "language" | "organisation"];
@@ -141,6 +178,11 @@ export default function EnglishEssayCoachPage() {
                   <p className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]/60">{dim.label}</p>
                   <p className={`mt-2 text-2xl font-bold ${scoreColor(d)}`}>{d.score}<span className="text-sm font-normal text-[var(--muted-foreground)]">/{d.max_score}</span></p>
                   <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted-foreground)]">{d.comment}</p>
+                  {d.individual_scores?.length === 3 && (
+                    <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
+                      Strict {d.individual_scores[0]} · Lenient {d.individual_scores[1]} · Balanced {d.individual_scores[2]}
+                    </p>
+                  )}
                 </div>
               );
             })}

@@ -463,9 +463,13 @@ async def test_reasoning_content_does_not_imply_action_for_unlabeled_body() -> N
 
 
 @pytest.mark.asyncio
-async def test_tool_calls_without_tool_label_stay_unknown() -> None:
-    """Native tool calls are parsed, but they do not override the formal
-    first-line action protocol. The caller should repair the missing label."""
+async def test_native_tool_calls_without_text_label_resolve_as_tool_action() -> None:
+    """A native tool call is already an unambiguous structured action.
+
+    Providers commonly emit ``content=None`` with ``tool_calls``. Requiring a
+    duplicate textual ``TOOL`` label would turn a valid call into a format
+    retry and can consume the whole iteration budget without executing it.
+    """
     events, result = await _run(
         [
             _reasoning_chunk("I need a lookup"),
@@ -473,7 +477,7 @@ async def test_tool_calls_without_tool_label_stay_unknown() -> None:
         ]
     )
 
-    assert result.label == "UNKNOWN"
+    assert result.label == "TOOL"
     assert result.tool_calls == [{"id": "call_1", "name": "search", "arguments": '{"q":"x"}'}]
     assert "I need a lookup" in "".join(_thinking_texts(events))
 

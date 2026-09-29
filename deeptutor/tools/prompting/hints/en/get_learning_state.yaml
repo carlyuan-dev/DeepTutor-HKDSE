@@ -1,0 +1,4 @@
+short_description: "Read saved Mathematics progress, weak-topic performance estimates, and an unfinished attempt for this chat."
+when_to_use: "Call first for a personalized multi-step review request, and again after reconnecting when an attempt may already exist."
+input_format: "No model-supplied parameters; the server injects the authenticated user and chat session."
+guideline: "Use the returned stage and pending_attempt to choose the next valid action. Never invent prior learning history."

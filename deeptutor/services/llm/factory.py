@@ -392,9 +392,14 @@ async def complete(
         raise map_error(exc, provider=config.provider_name) from exc
 
     if response.finish_reason == "error":
-        raise map_error(
+        mapped_error = map_error(
             RuntimeError(response.content or "LLM request failed"), provider=config.provider_name
         )
+        status = getattr(response, "error_status_code", None)
+        if status is not None:
+            mapped_error.status_code = status
+        mapped_error.request_id = getattr(response, "error_request_id", None)
+        raise mapped_error
     return response.content or ""
 
 

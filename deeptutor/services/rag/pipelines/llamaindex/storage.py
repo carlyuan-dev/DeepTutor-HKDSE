@@ -9,6 +9,12 @@ import shutil
 from typing import Any
 
 from llama_index.core import StorageContext, load_index_from_storage
+from llama_index.core.vector_stores import (
+    FilterCondition,
+    FilterOperator,
+    MetadataFilter,
+    MetadataFilters,
+)
 
 from deeptutor.services.embedding.validation import validate_embedding_batch
 from deeptutor.services.rag.index_versioning import (
@@ -70,6 +76,7 @@ def create_index(documents: list[Any], storage_dir: Path, *, show_progress: bool
     index, count = ingestion.create_index_from_documents(
         documents, storage_dir, show_progress=show_progress
     )
+    retrievers.invalidate_bm25_sidecars(storage_dir)
     retrievers.persist_bm25_retriever(index, storage_dir, top_k=20)
     return count
 
@@ -86,6 +93,7 @@ def insert_documents(existing_storage: Path, storage_dir: Path, documents: list[
             index.insert(document)
         count = len(documents)
     index.storage_context.persist(persist_dir=str(storage_dir))
+    retrievers.invalidate_bm25_sidecars(storage_dir)
     retrievers.persist_bm25_retriever(index, storage_dir, top_k=20)
     return count
 
@@ -178,6 +186,96 @@ def retrieve_nodes(storage_dir: Path, query: str, *, top_k: int = 5) -> list[Any
     _validate_persisted_embeddings(index, storage_dir)
     retriever = retrievers.build_retriever(index, storage_dir, top_k=top_k)
     return retriever.retrieve(query)
+
+
+def _matching_metadata_nodes(index: Any, constraints: dict[str, str]) -> list[Any]:
+    try:
+        nodes = index.docstore.docs.values()
+    except Exception:
+        return []
+    return [
+        node
+        for node in nodes
+        if isinstance(getattr(node, "metadata", None), dict)
+        and all(node.metadata.get(key) == value for key, value in constraints.items())
+    ]
+
+
+def _retrieved_node_matches(node_with_score: Any, constraints: dict[str, str]) -> bool:
+    node = getattr(node_with_score, "node", node_with_score)
+    metadata = getattr(node, "metadata", None)
+    return isinstance(metadata, dict) and all(
+        metadata.get(key) == value for key, value in constraints.items()
+    )
+
+
+def _metadata_filters(constraints: dict[str, str]) -> MetadataFilters:
+    return MetadataFilters(
+        filters=[
+            MetadataFilter(key=key, value=value, operator=FilterOperator.EQ)
+            for key, value in sorted(constraints.items())
+        ],
+        condition=FilterCondition.AND,
+    )
+
+
+def retrieve_nodes_with_constraints(
+    storage_dir: Path,
+    query: str,
+    *,
+    top_k: int = 5,
+    constraints: dict[str, str],
+) -> tuple[list[Any], dict[str, Any]]:
+    """Retrieve with exact metadata filters, falling back to legacy retrieval."""
+    storage_context = StorageContext.from_defaults(persist_dir=str(storage_dir))
+    index = load_index_from_storage(storage_context)
+    _validate_persisted_embeddings(index, storage_dir)
+    normalized = {key: constraints[key] for key in sorted(constraints)}
+    eligible_nodes = _matching_metadata_nodes(index, normalized)
+    eligible_node_count = len(eligible_nodes)
+    outcome = {
+        "constraints": normalized,
+        "eligible_node_count": eligible_node_count,
+    }
+
+    if eligible_node_count == 0:
+        retriever = retrievers.build_retriever(index, storage_dir, top_k=top_k)
+        return retriever.retrieve(query), {
+            "status": "fallback",
+            "reason": "no_matching_metadata",
+            **outcome,
+        }
+
+    try:
+        retriever = retrievers.build_retriever(
+            index,
+            storage_dir,
+            top_k=top_k,
+            filters=_metadata_filters(normalized),
+            eligible_node_count=eligible_node_count,
+            eligible_nodes=eligible_nodes,
+        )
+        nodes = [
+            node
+            for node in retriever.retrieve(query)
+            if _retrieved_node_matches(node, normalized)
+        ][:top_k]
+        if nodes:
+            return nodes, {
+                "status": "applied",
+                "reason": "matching_metadata",
+                **outcome,
+            }
+        fallback_reason = "empty_filtered_result"
+    except Exception as exc:
+        fallback_reason = f"filter_error:{type(exc).__name__}"
+
+    retriever = retrievers.build_retriever(index, storage_dir, top_k=top_k)
+    return retriever.retrieve(query), {
+        "status": "fallback",
+        "reason": fallback_reason,
+        **outcome,
+    }
 
 
 def delete_kb_dir(kb_dir: Path) -> bool:

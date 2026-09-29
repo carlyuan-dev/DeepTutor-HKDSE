@@ -7,7 +7,9 @@ from types import SimpleNamespace
 import pytest
 
 
-def test_custom_embedding_rejects_null_coordinates(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_custom_embedding_rejects_null_coordinates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from deeptutor.services.rag.pipelines.llamaindex import (
         embedding_adapter as embedding_module,
     )
@@ -26,7 +28,9 @@ def test_custom_embedding_rejects_null_coordinates(monkeypatch: pytest.MonkeyPat
         embedding._get_text_embeddings(["chunk"])
 
 
-def test_custom_embedding_refreshes_stale_client(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_custom_embedding_refreshes_stale_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from deeptutor.services.rag.pipelines.llamaindex import (
         embedding_adapter as embedding_module,
     )
@@ -64,6 +68,56 @@ def test_custom_embedding_refreshes_stale_client(monkeypatch: pytest.MonkeyPatch
     assert embedding._get_query_embedding("hello") == [2.0]
     assert old_client.calls == []
     assert new_client.calls == [["hello"]]
+
+
+def test_custom_embedding_preserves_explicit_evaluation_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from deeptutor.services.rag.pipelines.llamaindex import (
+        embedding_adapter as embedding_module,
+    )
+
+    class _FakeClient:
+        def __init__(self, config, value: float) -> None:
+            self.config = config
+            self.value = value
+            self.calls: list[list[str]] = []
+
+        async def embed(self, texts, progress_callback=None):
+            self.calls.append(list(texts))
+            return [[self.value] for _ in texts]
+
+    explicit_config = SimpleNamespace(
+        binding="openai",
+        model="evaluation-embed",
+        dim=1024,
+        effective_url="https://example.test/v1/embeddings",
+        base_url="https://example.test/v1/embeddings",
+        api_version=None,
+        send_dimensions=False,
+    )
+    production_config = SimpleNamespace(
+        binding="openai",
+        model="production-embed",
+        dim=2048,
+        effective_url="https://example.test/v1/embeddings",
+        base_url="https://example.test/v1/embeddings",
+        api_version=None,
+        send_dimensions=False,
+    )
+    explicit_client = _FakeClient(explicit_config, 1.0)
+    production_client = _FakeClient(production_config, 2.0)
+
+    def _client_for(config=None):
+        return explicit_client if config is explicit_config else production_client
+
+    monkeypatch.setattr(embedding_module, "get_embedding_client", _client_for)
+
+    embedding = embedding_module.CustomEmbedding(embedding_config=explicit_config)
+
+    assert embedding._get_query_embedding("hello") == [1.0]
+    assert explicit_client.calls == [["hello"]]
+    assert production_client.calls == []
 
 
 @pytest.mark.asyncio
@@ -110,7 +164,9 @@ def test_retrieve_nodes_rejects_invalid_persisted_embeddings(
 
     class _RetrieverShouldNotRun:
         def retrieve(self, query: str):  # pragma: no cover - assertion helper
-            raise AssertionError("retriever should not run for invalid persisted vectors")
+            raise AssertionError(
+                "retriever should not run for invalid persisted vectors"
+            )
 
     fake_index = SimpleNamespace(
         vector_store=SimpleNamespace(
@@ -124,9 +180,13 @@ def test_retrieve_nodes_rejects_invalid_persisted_embeddings(
         "from_defaults",
         lambda persist_dir: object(),
     )
-    monkeypatch.setattr(storage_module, "load_index_from_storage", lambda _ctx: fake_index)
+    monkeypatch.setattr(
+        storage_module, "load_index_from_storage", lambda _ctx: fake_index
+    )
 
-    with pytest.raises(ValueError, match="RAG index contains invalid embedding vectors"):
+    with pytest.raises(
+        ValueError, match="RAG index contains invalid embedding vectors"
+    ):
         storage_module.retrieve_nodes(tmp_path, "what is this?")
 
 
@@ -138,7 +198,9 @@ def test_validate_storage_embeddings_rejects_invalid_vector_file(tmp_path) -> No
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="RAG index contains invalid embedding vectors"):
+    with pytest.raises(
+        ValueError, match="RAG index contains invalid embedding vectors"
+    ):
         storage_module.validate_storage_embeddings(tmp_path)
 
 
@@ -149,7 +211,9 @@ def test_retrieve_nodes_checks_storage_context_vector_stores(
 
     class _RetrieverShouldNotRun:
         def retrieve(self, query: str):  # pragma: no cover - assertion helper
-            raise AssertionError("retriever should not run for invalid persisted vectors")
+            raise AssertionError(
+                "retriever should not run for invalid persisted vectors"
+            )
 
     fake_index = SimpleNamespace(
         vector_store=SimpleNamespace(data=SimpleNamespace(embedding_dict={})),
@@ -168,9 +232,13 @@ def test_retrieve_nodes_checks_storage_context_vector_stores(
         "from_defaults",
         lambda persist_dir: object(),
     )
-    monkeypatch.setattr(storage_module, "load_index_from_storage", lambda _ctx: fake_index)
+    monkeypatch.setattr(
+        storage_module, "load_index_from_storage", lambda _ctx: fake_index
+    )
 
-    with pytest.raises(ValueError, match="RAG index contains invalid embedding vectors"):
+    with pytest.raises(
+        ValueError, match="RAG index contains invalid embedding vectors"
+    ):
         storage_module.retrieve_nodes(tmp_path, "what is this?")
 
 
@@ -244,7 +312,9 @@ async def test_rag_service_hides_low_level_invalid_index_error_in_raw_logs(
 
     raw_logs = [message for event_type, message, _ in events if event_type == "raw_log"]
     assert result["error_type"] == "invalid_embedding_index"
-    assert any("Search failed (invalid_embedding_index)" in message for message in raw_logs)
+    assert any(
+        "Search failed (invalid_embedding_index)" in message for message in raw_logs
+    )
     assert not any("unsupported operand" in message for message in raw_logs)
     assert any(
         metadata.get("call_state") == "error" and metadata.get("needs_reindex") is True

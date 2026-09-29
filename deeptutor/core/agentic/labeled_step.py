@@ -11,10 +11,10 @@ client, optional tool schemas, and a label protocol, this:
   post-label text and returns it to the caller; the caller decides whether
   to emit it as body content (so a mixed ``FINISH+TOOL`` reply never leaks
   prose into the answer area before the protocol is validated).
-* Accumulates ``tool_calls`` deltas. Tool-call presence alone does not choose
-  the action label: the formal content stream must still begin with the
-  caller's tool label (e.g. ``TOOL``), otherwise the caller's protocol repair
-  path handles the missing label.
+* Accumulates ``tool_calls`` deltas. A native tool call with no formal content
+  label resolves to the caller's tool label (e.g. ``TOOL``), matching the
+  standard provider shape of ``content=None`` plus ``tool_calls``. Explicit
+  non-tool labels combined with tool calls remain protocol violations.
 * When a reasoning model prepends a literal ``<think>...</think>`` block
   *before* the protocol label, that prelude is detected and streamed live
   into the reasoning sub-trace (same routing as the ``THINK`` label).
@@ -262,6 +262,7 @@ async def run_labeled_step(
     # existing behavior; we always force the cleanup when a prelude was
     # detected so the synthetic markers we recorded don't leak out.
     saw_pre_label_think = False
+    prelude_was_forced_closed = False
     sub_trace_opened = False
     content_acc: list[str] = []
     tc_acc: dict[int, dict[str, Any]] = {}
@@ -615,6 +616,7 @@ async def run_labeled_step(
             # the user sees what the model managed to produce, then close
             # the block synthetically.
             await _close_prelude_artificially()
+            prelude_was_forced_closed = True
         final_parsed = classify_label(
             label_buf,
             allowed_labels=allowed_labels,
@@ -659,4 +661,16 @@ async def run_labeled_step(
         text = clean_thinking_tags(text, binding, model)
     ordered_tool_calls = [tc_acc[k] for k in sorted(tc_acc.keys())]
     ordered_tool_calls = [tc for tc in ordered_tool_calls if tc.get("name")]
+    # Native tool calling is already an unambiguous structured action. Many
+    # OpenAI-compatible providers correctly emit ``content=None`` alongside
+    # ``tool_calls`` and never duplicate that action as a textual ``TOOL``
+    # label. Treat only the unresolved-label case as TOOL; an explicit THINK,
+    # PAUSE, or FINISH with tool calls is still rejected by the outer loop.
+    if (
+        label == LABEL_UNKNOWN
+        and ordered_tool_calls
+        and tool_label is not None
+        and not prelude_was_forced_closed
+    ):
+        label = tool_label
     return LabeledStepResult(label=label, text=text, tool_calls=ordered_tool_calls)

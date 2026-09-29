@@ -18,6 +18,7 @@ from deeptutor.services.rag.index_versioning import (
     resolve_storage_dir_for_rebuild,
     write_version_meta,
 )
+from deeptutor.services.rag.metadata_constraints import normalize_metadata_constraints
 
 from . import storage
 from .document_loader import LlamaIndexDocumentLoader
@@ -31,6 +32,17 @@ from .errors import search_error_result
 DEFAULT_KB_BASE_DIR = str(get_runtime_data_root() / "knowledge_bases")
 
 SignatureProvider = Callable[[], EmbeddingSignature | None]
+
+
+def _constraint_not_applied(decision: Any, reason: str) -> dict[str, Any]:
+    if decision.status != "eligible":
+        return decision.as_dict()
+    return {
+        "status": "not_applied",
+        "reason": reason,
+        "requested": decision.requested,
+        "constraints": decision.constraints,
+    }
 
 
 class LlamaIndexPipeline:
@@ -84,7 +96,13 @@ class LlamaIndexPipeline:
 
         try:
             await self._verify_embedding_connectivity()
-            documents = await self.document_loader.load(file_paths)
+            metadata_by_path = kwargs.get("document_metadata_by_path")
+            if metadata_by_path is None:
+                documents = await self.document_loader.load(file_paths)
+            else:
+                documents = await self.document_loader.load(
+                    file_paths, metadata_by_path=metadata_by_path
+                )
             if not documents:
                 self.logger.error("No valid documents found")
                 return False
@@ -125,6 +143,9 @@ class LlamaIndexPipeline:
         **kwargs,
     ) -> Dict[str, Any]:
         kwargs.pop("mode", None)
+        constraint_decision = normalize_metadata_constraints(
+            kwargs.pop("metadata_constraints", None)
+        )
         self._configure_settings()
         self.logger.info(f"Searching KB '{kb_name}' with query: {query[:50]}...")
 
@@ -147,6 +168,9 @@ class LlamaIndexPipeline:
                 "content": "",
                 "provider": "llamaindex",
                 "needs_reindex": True,
+                "metadata_constraint": _constraint_not_applied(
+                    constraint_decision, "index_unavailable"
+                ),
             }
 
         embedding_mismatch_warning = self._embedding_mismatch_warning(kb_name)
@@ -154,18 +178,38 @@ class LlamaIndexPipeline:
         try:
             loop = asyncio.get_running_loop()
             top_k = kwargs.get("top_k", 5)
-            nodes = await loop.run_in_executor(
-                None,
-                lambda: storage.retrieve_nodes(storage_dir, query, top_k=top_k),
-            )
+            if constraint_decision.status == "eligible":
+                nodes, constraint_outcome = await loop.run_in_executor(
+                    None,
+                    lambda: storage.retrieve_nodes_with_constraints(
+                        storage_dir,
+                        query,
+                        top_k=top_k,
+                        constraints=constraint_decision.constraints,
+                    ),
+                )
+                constraint_result = {
+                    **constraint_outcome,
+                    "requested": constraint_decision.requested,
+                }
+            else:
+                nodes = await loop.run_in_executor(
+                    None,
+                    lambda: storage.retrieve_nodes(storage_dir, query, top_k=top_k),
+                )
+                constraint_result = constraint_decision.as_dict()
 
             result = self._nodes_to_result(query, nodes)
+            result["metadata_constraint"] = constraint_result
             if embedding_mismatch_warning:
                 result["warning"] = embedding_mismatch_warning
             return result
 
         except Exception as exc:
             result = search_error_result(query, exc)
+            result["metadata_constraint"] = _constraint_not_applied(
+                constraint_decision, f"search_error:{type(exc).__name__}"
+            )
             if result.get("error_type"):
                 log_message = result.get("log_message") or str(exc)
                 self.logger.warning(f"Search failed ({result['error_type']}): {log_message}")
@@ -235,7 +279,13 @@ class LlamaIndexPipeline:
             if progress_callback:
                 set_progress_callback(progress_callback)
 
-            documents = await self.document_loader.load(file_paths)
+            metadata_by_path = kwargs.get("document_metadata_by_path")
+            if metadata_by_path is None:
+                documents = await self.document_loader.load(file_paths)
+            else:
+                documents = await self.document_loader.load(
+                    file_paths, metadata_by_path=metadata_by_path
+                )
             if not documents:
                 self.logger.warning("No valid documents to add")
                 return False

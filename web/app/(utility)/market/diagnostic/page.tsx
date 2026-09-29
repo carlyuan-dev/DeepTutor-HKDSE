@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowLeft, Stethoscope, Loader2 } from "lucide-react";
 import { apiUrl } from "@/lib/api";
@@ -14,9 +14,14 @@ interface DQuestion {
   difficulty: string;
   question: string;
   options: string[];
-  answer: string;
 }
-interface TopicProfile { topic: string; correct: number; total: number; mastery: number; }
+interface TopicProfile {
+  topic_id: string;
+  topic_name: string;
+  correct: number;
+  total: number;
+  performance_estimate: number;
+}
 interface DResult {
   subject: string;
   score: number;
@@ -25,6 +30,15 @@ interface DResult {
   profile: TopicProfile[];
   weak_topics: string[];
   recommendation: string;
+}
+
+const DIAGNOSTIC_SESSION_KEY = "deeptutor:market-diagnostic-session";
+
+function newDiagnosticSessionId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `market-diagnostic-${crypto.randomUUID()}`;
+  }
+  return `market-diagnostic-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 export default function DiagnosticPage() {
@@ -38,19 +52,59 @@ export default function DiagnosticPage() {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [result, setResult] = useState<DResult | null>(null);
   const [error, setError] = useState("");
+  const [attemptId, setAttemptId] = useState("");
+  const [sessionId, setSessionId] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    const restore = async () => {
+      const stored = localStorage.getItem(DIAGNOSTIC_SESSION_KEY);
+      const resolvedSessionId = stored || newDiagnosticSessionId();
+      localStorage.setItem(DIAGNOSTIC_SESSION_KEY, resolvedSessionId);
+      setSessionId(resolvedSessionId);
+      try {
+        const res = await fetch(
+          apiUrl(`/api/v1/market-tools/learning/state?session_id=${encodeURIComponent(resolvedSessionId)}`)
+        );
+        const data = await res.json();
+        if (cancelled || data.error) return;
+        if (data.pending_attempt) {
+          setAttemptId(data.pending_attempt.attempt_id);
+          setQuestions(data.pending_attempt.questions || []);
+          setAnswers({});
+          setStage("quiz");
+        } else if (data.last_result) {
+          setResult(data.last_result as DResult);
+          setStage("result");
+        }
+      } catch {
+        // State recovery is best-effort; the normal generate path remains available.
+      }
+    };
+    void restore();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const generate = async () => {
     setError("");
     setStage("generating");
     try {
+      const resolvedSessionId = sessionId || newDiagnosticSessionId();
+      if (!sessionId) {
+        localStorage.setItem(DIAGNOSTIC_SESSION_KEY, resolvedSessionId);
+        setSessionId(resolvedSessionId);
+      }
       const topics = topicsText.split(",").map((s) => s.trim()).filter(Boolean);
       const res = await fetch(apiUrl("/api/v1/market-tools/diagnostic/generate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject, topics, num_questions: num, kb_name: kb || undefined, language: i18n.language }),
+        body: JSON.stringify({ subject, topics, num_questions: num, kb_name: kb || undefined, language: i18n.language, session_id: resolvedSessionId }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
+      setAttemptId(data.attempt_id);
       setQuestions(data.questions || []);
       setAnswers({});
       setStage("quiz");
@@ -64,10 +118,11 @@ export default function DiagnosticPage() {
     setError("");
     setStage("grading");
     try {
+      if (!attemptId) throw new Error(t("No active diagnostic attempt"));
       const res = await fetch(apiUrl("/api/v1/market-tools/diagnostic/grade"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject, questions, answers, language: i18n.language }),
+        body: JSON.stringify({ attempt_id: attemptId, answers, language: i18n.language }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -115,7 +170,7 @@ export default function DiagnosticPage() {
           <div className="flex gap-4">
             <div className="flex-1 space-y-1.5">
               <label className="text-xs font-medium text-[var(--muted-foreground)]">{t("Number of Questions")}</label>
-              <input type="number" min={4} max={15} value={num} onChange={(e) => setNum(Math.max(4, Math.min(15, Number(e.target.value))))}
+              <input type="number" min={1} max={10} value={num} onChange={(e) => setNum(Math.max(1, Math.min(10, Number(e.target.value))))}
                 className="w-full rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-3 py-2 text-sm text-[var(--foreground)] outline-none" />
             </div>
             <div className="flex-1 space-y-1.5">
@@ -184,16 +239,16 @@ export default function DiagnosticPage() {
             <p className="text-xs text-[var(--muted-foreground)]">{result.score} / {result.total} {t("correct")}</p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--secondary)] p-5">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">{t("Topic Mastery")}</p>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">{t("Topic Performance Estimate")}</p>
             <div className="space-y-2.5">
               {result.profile.map((p) => (
-                <div key={p.topic}>
+                <div key={p.topic_id}>
                   <div className="mb-1 flex justify-between text-xs">
-                    <span className="text-[var(--foreground)]">{p.topic}</span>
-                    <span className="text-[var(--muted-foreground)]">{p.correct}/{p.total} · {p.mastery}%</span>
+                    <span className="text-[var(--foreground)]">{p.topic_name}</span>
+                    <span className="text-[var(--muted-foreground)]">{p.correct}/{p.total} · {p.performance_estimate}%</span>
                   </div>
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--background)]">
-                    <div className={`h-full rounded-full ${p.mastery < 60 ? "bg-rose-500" : p.mastery < 80 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${p.mastery}%` }} />
+                    <div className={`h-full rounded-full ${p.performance_estimate < 60 ? "bg-rose-500" : p.performance_estimate < 80 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${p.performance_estimate}%` }} />
                   </div>
                 </div>
               ))}
@@ -212,7 +267,7 @@ export default function DiagnosticPage() {
             </div>
           )}
           <div className="flex gap-3">
-            <button onClick={() => { setStage("config"); setResult(null); }} className="rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-5 py-2.5 text-sm text-[var(--foreground)] hover:bg-[var(--background)]">
+            <button onClick={() => { setStage("config"); setResult(null); setAttemptId(""); setQuestions([]); setAnswers({}); }} className="rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-5 py-2.5 text-sm text-[var(--foreground)] hover:bg-[var(--background)]">
               {t("New Diagnostic")}
             </button>
             <Link href="/market/study-planner" className="rounded-lg bg-indigo-500 px-5 py-2.5 text-sm font-medium text-white hover:opacity-90">

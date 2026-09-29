@@ -19,12 +19,14 @@ import logging
 import re
 import traceback
 from typing import Any
+from uuid import uuid4
 
 import aiohttp
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 from deeptutor.services.llm import complete as llm_complete
+from deeptutor.services.retrieval_context import retrieve_context
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -53,14 +55,7 @@ async def _rag_retrieve(kb_name: str | None, query: str) -> str:
     """Retrieve grounded context from a KB. Degrades to empty string on failure."""
     if not kb_name:
         return ""
-    try:
-        from deeptutor.services.rag.service import RAGService
-
-        result = await RAGService().search(query=query, kb_name=kb_name)
-        return result.get("content") or result.get("answer") or ""
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("RAG retrieval failed (degrading to LLM-only): %s", exc)
-        return ""
+    return await retrieve_context(kb_name, query, logger=logger)
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -287,125 +282,69 @@ class DiagnosticRequest(BaseModel):
     num_questions: int = 6
     kb_name: str | None = None
     language: str = "en"
+    session_id: str | None = None
 
 
 @router.post("/diagnostic/generate")
 async def diagnostic_generate(req: DiagnosticRequest) -> dict[str, Any]:
-    """Generate a short diagnostic quiz spanning the requested topics."""
+    """Create a persisted diagnostic with a server-only answer key."""
     try:
-        context = await _rag_retrieve(req.kb_name, req.subject + " " + " ".join(req.topics))
-        lang_line = "Respond in 繁體中文." if req.language == "zh" else "Respond in English."
-        schema = {
-            "subject": req.subject,
-            "questions": [
-                {
-                    "id": "q1",
-                    "topic": "<topic being probed>",
-                    "difficulty": "easy|medium|hard",
-                    "question": "<question text>",
-                    "options": ["A. ...", "B. ...", "C. ...", "D. ..."],
-                    "answer": "A",
-                }
-            ],
-        }
-        system_prompt = (
-            "You are an assessment designer. Create diagnostic MCQs that efficiently "
-            "reveal a student's weak topics. Output ONLY valid JSON — no markdown fences."
+        from deeptutor.services.learning import get_learning_service
+
+        if str(req.subject or "").strip().casefold() not in {
+            "mathematics",
+            "math",
+            "maths",
+            "數學",
+            "数学",
+        }:
+            return {"error": "The persisted learning chain currently supports Mathematics only."}
+        session_id = str(req.session_id or "").strip() or f"market-diagnostic-{uuid4().hex}"
+        attempt = await get_learning_service().create_attempt(
+            chat_session_id=session_id,
+            activity="diagnostic",
+            topics=req.topics,
+            num_questions=req.num_questions,
+            kb_name=req.kb_name,
+            language=req.language,
         )
-        topics_line = f"Topics to probe: {', '.join(req.topics)}.\n" if req.topics else ""
-        user_prompt = (
-            f"{lang_line}\n"
-            f"Create a {req.num_questions}-question diagnostic quiz for {req.subject}.\n"
-            f"{topics_line}"
-            "Spread questions across topics and difficulties so weak areas stand out. "
-            "Each question is multiple choice with exactly 4 options.\n"
-            + (f"\nUse this source material:\n{context[:4000]}\n" if context else "")
-            + f"\nOutput JSON matching this schema:\n{json.dumps(schema, ensure_ascii=False, indent=2)}"
-        )
-        raw = await llm_complete(user_prompt, system_prompt=system_prompt)
-        quiz = _parse_json(raw)
-        for i, q in enumerate(quiz.get("questions", [])):
-            q.setdefault("id", f"q{i + 1}")
-        return quiz
+        return {**attempt, "session_id": session_id}
     except Exception as exc:  # noqa: BLE001
         logger.error("diagnostic/generate error: %s\n%s", exc, traceback.format_exc())
         return {"error": str(exc)}
 
 
 class DiagnosticGradeRequest(BaseModel):
-    subject: str
-    questions: list[dict[str, Any]]
+    attempt_id: str
     answers: dict[str, str]  # question_id -> chosen option
     language: str = "en"
 
 
 @router.post("/diagnostic/grade")
 async def diagnostic_grade(req: DiagnosticGradeRequest) -> dict[str, Any]:
-    """Grade a diagnostic and produce a per-topic mastery profile + next steps."""
+    """Grade a persisted diagnostic against its server-only answer key."""
     try:
-        # Objective scoring (no LLM needed for correctness) + per-topic aggregation.
-        topic_totals: dict[str, int] = {}
-        topic_correct: dict[str, int] = {}
-        details = []
-        correct_count = 0
-        for q in req.questions:
-            qid = q.get("id", "")
-            topic = q.get("topic", "General")
-            correct_ans = str(q.get("answer", "")).strip()
-            student = str(req.answers.get(qid, "")).strip()
-            is_correct = bool(student) and (
-                student == correct_ans
-                or student[:1].upper() == correct_ans[:1].upper()
-            )
-            topic_totals[topic] = topic_totals.get(topic, 0) + 1
-            topic_correct[topic] = topic_correct.get(topic, 0) + (1 if is_correct else 0)
-            correct_count += 1 if is_correct else 0
-            details.append(
-                {"question_id": qid, "topic": topic, "is_correct": is_correct,
-                 "student_answer": student, "correct_answer": correct_ans}
-            )
+        from deeptutor.services.learning import get_learning_service
 
-        total = len(req.questions) or 1
-        profile = [
-            {
-                "topic": t,
-                "correct": topic_correct.get(t, 0),
-                "total": topic_totals[t],
-                "mastery": round(topic_correct.get(t, 0) / topic_totals[t] * 100, 1),
-            }
-            for t in topic_totals
-        ]
-        weak_topics = [p["topic"] for p in profile if p["mastery"] < 60]
-
-        # LLM-generated personalized recommendation.
-        lang_line = "Respond in 繁體中文." if req.language == "zh" else "Respond in English."
-        rec_schema = {"recommendation": "<2-3 sentence personalized next-step advice>"}
-        rec_prompt = (
-            f"{lang_line}\n"
-            f"A student took a {req.subject} diagnostic. Per-topic mastery: "
-            f"{json.dumps(profile, ensure_ascii=False)}. Weak topics: {weak_topics}.\n"
-            "Give brief, encouraging, concrete next-step advice. "
-            f"Output ONLY JSON: {json.dumps(rec_schema)}"
+        return await get_learning_service().submit_attempt(
+            attempt_id=req.attempt_id,
+            answers=req.answers,
+            language=req.language,
         )
-        recommendation = ""
-        try:
-            rec_raw = await llm_complete(rec_prompt, system_prompt="Output only valid JSON.")
-            recommendation = _parse_json(rec_raw).get("recommendation", "")
-        except Exception:  # noqa: BLE001
-            recommendation = ""
-
-        return {
-            "subject": req.subject,
-            "score": correct_count,
-            "total": total,
-            "percentage": round(correct_count / total * 100, 1),
-            "profile": sorted(profile, key=lambda p: p["mastery"]),
-            "weak_topics": weak_topics,
-            "details": details,
-            "recommendation": recommendation,
-        }
     except Exception as exc:  # noqa: BLE001
         logger.error("diagnostic/grade error: %s\n%s", exc, traceback.format_exc())
+        return {"error": str(exc)}
+
+
+@router.get("/learning/state")
+async def learning_state(session_id: str = "") -> dict[str, Any]:
+    """Return resumable Mathematics learning state for the active user."""
+    try:
+        from deeptutor.services.learning import get_learning_service
+
+        return await get_learning_service().get_state(chat_session_id=session_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("learning/state error: %s\n%s", exc, traceback.format_exc())
         return {"error": str(exc)}
 
 

@@ -6,8 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, CheckCircle, FileText, Loader2 } from "lucide-react";
 import { generatePaper } from "@/lib/market-api";
 import { listKnowledgeBases } from "@/lib/knowledge-api";
-import type { ExamPaper, Question, StudentAnswers } from "@/types/market";
-import { STORAGE_KEYS } from "@/types/market";
+import type { ExamPaper, LearningLoopPractice, Question, StudentAnswers } from "@/types/market";
+import { isCurrentPractice, readRetake, RESTART_MESSAGE, savePractice } from "@/lib/learning-loop-context";
 
 type Stage = "config" | "generating" | "answer" | "submitting";
 
@@ -29,6 +29,11 @@ export default function PaperForgePage() {
   // Config
   const [kbName, setKbName] = useState("");
   const [kbList, setKbList] = useState<string[]>([]);
+  const [kbReady, setKbReady] = useState(false);
+  const retakeRef = useRef<LearningLoopPractice | null>(null);
+  const generatedRef = useRef<LearningLoopPractice | null>(null);
+  const generationRef = useRef(0);
+  const [subject, setSubject] = useState("");
   const [title, setTitle] = useState("Examination Paper");
   const [selectedTypes, setSelectedTypes] = useState<string[]>(["mcq", "short_answer"]);
   const [numQuestions, setNumQuestions] = useState(10);
@@ -44,22 +49,27 @@ export default function PaperForgePage() {
   const answerRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   useEffect(() => {
+    let active = true;
     listKnowledgeBases().then((kbs) => {
+      if (!active) return;
+      const restored = readRetake("/market/paper-forge");
+      retakeRef.current = restored;
+      if (restored) {
+        setKbName(restored.kb_name);
+        setTopicFocus(restored.weak_topics.join(", "));
+        setSubject(restored.subject);
+      }
       const names = kbs.map((kb: { name: string }) => kb.name);
       setKbList(names);
-      if (names.length > 0) setKbName(names[0]);
+      if (!restored && names.length > 0) setKbName((previous) => previous || names[0]);
+      if (restored?.kb_name && !names.includes(restored.kb_name)) {
+        setError("The original knowledge base is unavailable. Select a knowledge base explicitly or start again.");
+      }
+      setKbReady(true);
+    }).catch((e: unknown) => {
+      if (active) setError(e instanceof Error ? e.message : "Could not load knowledge bases. Please try again.");
     });
-  }, []);
-
-  // Handle retake: pre-fill topics from weak_topics in localStorage
-  useEffect(() => {
-    const topics = localStorage.getItem(STORAGE_KEYS.weakTopics);
-    if (topics) {
-      try {
-        const arr: string[] = JSON.parse(topics);
-        setTopicFocus(arr.join(", "));
-      } catch {}
-    }
+    return () => { active = false; generationRef.current += 1; };
   }, []);
 
   const toggleType = (t: string) => {
@@ -69,6 +79,22 @@ export default function PaperForgePage() {
   };
 
   const handleGenerate = async () => {
+    if (retakeRef.current && !isCurrentPractice(retakeRef.current.id)) {
+      setError(RESTART_MESSAGE);
+      return;
+    }
+    if (!kbReady || (kbName && !kbList.includes(kbName))) {
+      setError("Knowledge base is unavailable. Please select one explicitly or start again.");
+      return;
+    }
+    if (!subject.trim()) {
+      setError("Please specify the subject for this practice.");
+      return;
+    }
+    const generation = ++generationRef.current;
+    generatedRef.current = null;
+    const metadata = { id: crypto.randomUUID(), subject: subject.trim(), kb_name: kbName,
+      entry: "/market/paper-forge" as const };
     if (selectedTypes.length === 0) return;
     setError("");
     setStage("generating");
@@ -77,31 +103,39 @@ export default function PaperForgePage() {
       const result = await generatePaper(
         {
           kb_name: kbName || undefined,
+          subject: metadata.subject,
           title,
           question_types: selectedTypes,
           num_questions: numQuestions,
           difficulty,
           topic_focus: topicFocus,
         },
-        (msg) => setProgressMsg(msg)
+        (msg) => { if (generation === generationRef.current) setProgressMsg(msg); }
       );
+      if (generation !== generationRef.current) return;
+      generatedRef.current = { ...metadata, paper: result, answers: {}, weak_topics: [] };
       setPaper(result);
       const initAnswers: StudentAnswers = {};
       result.questions.forEach((q) => (initAnswers[q.id] = ""));
       setAnswers(initAnswers);
       setStage("answer");
     } catch (e: unknown) {
+      if (generation !== generationRef.current) return;
       setError(e instanceof Error ? e.message : "Generation failed");
       setStage("config");
     }
   };
 
   const handleSubmit = () => {
-    if (!paper) return;
+    if (!paper || !generatedRef.current) return;
     setStage("submitting");
-    localStorage.setItem(STORAGE_KEYS.paper, JSON.stringify(paper));
-    localStorage.setItem(STORAGE_KEYS.answers, JSON.stringify(answers));
-    localStorage.removeItem(STORAGE_KEYS.weakTopics);
+    try {
+      savePractice({ ...generatedRef.current, id: crypto.randomUUID(), answers });
+    } catch {
+      setError("Could not save this practice. Please enable browser storage and try again.");
+      setStage("answer");
+      return;
+    }
     router.push("/market/exam-grader");
   };
 
@@ -142,6 +176,11 @@ export default function PaperForgePage() {
 
           {/* Paper title */}
           <div className="space-y-1.5">
+            <label htmlFor="practice-subject" className="text-xs font-medium text-[var(--muted-foreground)]">Subject</label>
+            <input id="practice-subject" value={subject} onChange={(e) => setSubject(e.target.value)}
+              placeholder="e.g. Mathematics" className="w-full rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-3 py-2 text-sm text-[var(--foreground)]" />
+          </div>
+          <div className="space-y-1.5">
             <label className="text-xs font-medium text-[var(--muted-foreground)]">Paper Title</label>
             <input
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20"
@@ -152,7 +191,7 @@ export default function PaperForgePage() {
           </div>
 
           {/* Knowledge base */}
-          {kbList.length > 0 && (
+          {(kbList.length > 0 || kbName) && (
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-[var(--muted-foreground)]">Knowledge Base</label>
               <select
@@ -161,6 +200,7 @@ export default function PaperForgePage() {
                 onChange={(e) => setKbName(e.target.value)}
               >
                 <option value="">None (LLM only)</option>
+                {kbName && !kbList.includes(kbName) && <option value={kbName}>{kbName} (unavailable)</option>}
                 {kbList.map((kb) => (
                   <option key={kb} value={kb}>{kb}</option>
                 ))}

@@ -1,0 +1,4 @@
+short_description: "读取本聊天中已保存的数学学习进度、薄弱项表现估计和未完成练习。"
+when_to_use: "个性化多步复习请求应先调用；刷新或重连后可能有未完成 attempt 时也先调用。"
+input_format: "无需模型提供参数；服务端注入已认证用户和聊天会话。"
+guideline: "依据返回的 stage 与 pending_attempt 选择下一项合法动作，不得编造历史记录。"

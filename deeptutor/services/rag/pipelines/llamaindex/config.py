@@ -8,6 +8,12 @@ import os
 VECTOR_PROFILE = "vector"
 HYBRID_PROFILE = "hybrid"
 SUPPORTED_RETRIEVAL_PROFILES = {VECTOR_PROFILE, HYBRID_PROFILE}
+LEGACY_BM25_TOKENIZER_PROFILE = "legacy"
+CJK_BIGRAM_BM25_TOKENIZER_PROFILE = "cjk_bigram_v1"
+SUPPORTED_BM25_TOKENIZER_PROFILES = {
+    LEGACY_BM25_TOKENIZER_PROFILE,
+    CJK_BIGRAM_BM25_TOKENIZER_PROFILE,
+}
 
 
 @dataclass(frozen=True)
@@ -18,6 +24,7 @@ class RetrievalConfig:
     vector_top_k_multiplier: int = 2
     bm25_top_k_multiplier: int = 2
     fusion_num_queries: int = 1
+    bm25_tokenizer_profile: str = LEGACY_BM25_TOKENIZER_PROFILE
 
     def candidate_top_k(self, top_k: int, multiplier: int) -> int:
         """Return the number of candidates to ask a child retriever for."""
@@ -33,6 +40,14 @@ def normalize_retrieval_profile(value: str | None) -> str:
     return HYBRID_PROFILE
 
 
+def normalize_bm25_tokenizer_profile(value: str | None) -> str:
+    """Return a supported tokenizer profile, defaulting to the legacy baseline."""
+    profile = (value or "").strip().lower()
+    if profile in SUPPORTED_BM25_TOKENIZER_PROFILES:
+        return profile
+    return LEGACY_BM25_TOKENIZER_PROFILE
+
+
 def retrieval_config_from_env() -> RetrievalConfig:
     """Build retrieval config from environment variables.
 
@@ -43,16 +58,24 @@ def retrieval_config_from_env() -> RetrievalConfig:
 
     return RetrievalConfig(
         profile=normalize_retrieval_profile(
-            os.getenv("DEEPTUTOR_RAG_RETRIEVAL_PROFILE") or os.getenv("RAG_RETRIEVAL_PROFILE")
-        )
+            os.getenv("DEEPTUTOR_RAG_RETRIEVAL_PROFILE")
+            or os.getenv("RAG_RETRIEVAL_PROFILE")
+        ),
+        bm25_tokenizer_profile=normalize_bm25_tokenizer_profile(
+            os.getenv("DEEPTUTOR_RAG_BM25_TOKENIZER_PROFILE")
+        ),
     )
 
 
 __all__ = [
     "HYBRID_PROFILE",
+    "CJK_BIGRAM_BM25_TOKENIZER_PROFILE",
+    "LEGACY_BM25_TOKENIZER_PROFILE",
     "RetrievalConfig",
+    "SUPPORTED_BM25_TOKENIZER_PROFILES",
     "SUPPORTED_RETRIEVAL_PROFILES",
     "VECTOR_PROFILE",
+    "normalize_bm25_tokenizer_profile",
     "normalize_retrieval_profile",
     "retrieval_config_from_env",
 ]

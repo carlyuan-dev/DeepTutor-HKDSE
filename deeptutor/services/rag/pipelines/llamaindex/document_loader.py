@@ -14,6 +14,7 @@ from llama_index.core.schema import ImageNode
 from deeptutor.services.embedding import get_embedding_client
 from deeptutor.services.llm.client import get_llm_client
 from deeptutor.services.rag.file_routing import FileTypeRouter
+from deeptutor.services.rag.metadata_constraints import validate_ingest_metadata
 from deeptutor.utils.document_extractor import DocumentExtractionError, extract_text_from_path
 from deeptutor.utils.document_validator import DocumentValidator
 
@@ -36,24 +37,46 @@ class LlamaIndexDocumentLoader:
     def __init__(self, logger=None) -> None:
         self.logger = logger or logging.getLogger(__name__)
 
-    async def load(self, file_paths: Iterable[str]) -> list[Any]:
+    async def load(
+        self,
+        file_paths: Iterable[str],
+        *,
+        metadata_by_path: dict[str, dict[str, str]] | None = None,
+    ) -> list[Any]:
         documents: list[Any] = []
+        validated_metadata_by_path = {
+            str(path): validate_ingest_metadata(metadata)
+            for path, metadata in (metadata_by_path or {}).items()
+        }
         classification = FileTypeRouter.classify_files(list(file_paths))
 
         for file_path_str in classification.parser_files:
             file_path = Path(file_path_str)
             self.logger.info(f"Parsing document: {file_path.name}")
             text = self._extract_parser_text(file_path)
-            self._append_if_nonempty(documents, file_path, text)
+            self._append_if_nonempty(
+                documents,
+                file_path,
+                text,
+                metadata_by_path=validated_metadata_by_path,
+            )
 
         for file_path_str in classification.text_files:
             file_path = Path(file_path_str)
             self.logger.info(f"Parsing text: {file_path.name}")
             text = await FileTypeRouter.read_text_file(str(file_path))
-            self._append_if_nonempty(documents, file_path, text)
+            self._append_if_nonempty(
+                documents,
+                file_path,
+                text,
+                metadata_by_path=validated_metadata_by_path,
+            )
 
         if classification.image_files:
-            image_nodes = await self._load_image_nodes(classification.image_files)
+            image_nodes = await self._load_image_nodes(
+                classification.image_files,
+                metadata_by_path=validated_metadata_by_path,
+            )
             documents.extend(image_nodes)
 
         for file_path_str in classification.unsupported:
@@ -73,7 +96,12 @@ class LlamaIndexDocumentLoader:
             self.logger.error(f"Failed to extract {file_path.name}: {exc}")
             return ""
 
-    async def _load_image_nodes(self, file_paths: list[str]) -> list[ImageNode]:
+    async def _load_image_nodes(
+        self,
+        file_paths: list[str],
+        *,
+        metadata_by_path: dict[str, dict[str, str]] | None = None,
+    ) -> list[ImageNode]:
         embedding_client = get_embedding_client()
         llm_client = get_llm_client()
 
@@ -157,6 +185,7 @@ class LlamaIndexDocumentLoader:
                     metadata={
                         "file_name": path.name,
                         "file_path": str(path),
+                        **(metadata_by_path or {}).get(str(path), {}),
                         "content_type": "image",
                         "image_description": description,
                     },
@@ -192,14 +221,25 @@ class LlamaIndexDocumentLoader:
             "mimetype": mimetype,
         }
 
-    def _append_if_nonempty(self, documents: list[Any], file_path: Path, text: str) -> None:
+    def _append_if_nonempty(
+        self,
+        documents: list[Any],
+        file_path: Path,
+        text: str,
+        *,
+        metadata_by_path: dict[str, dict[str, str]] | None = None,
+    ) -> None:
         if text.strip():
+            retrieval_metadata: dict[str, str] = {}
+            if metadata_by_path and str(file_path) in metadata_by_path:
+                retrieval_metadata = metadata_by_path[str(file_path)]
             documents.append(
                 Document(
                     text=text,
                     metadata={
                         "file_name": file_path.name,
                         "file_path": str(file_path),
+                        **retrieval_metadata,
                     },
                 )
             )
