@@ -81,6 +81,8 @@ CLI 和网页应使用同一运行目录。同名库会被拒绝创建，不覆�
 
 ## B. 英语口语模拟
 
+推荐在桌面版 Google Chrome 中打开前端地址体验。TTS 使用浏览器可用音色，不同浏览器和操作系统的声音可能不同；应用内浏览器若出现明显机械音，可换用 Chrome。音色数量不足时会复用，无法保证跨设备音质一致。
+
 进入 `/market/hkdse/english/oral-practice`：
 
 1. 选择 Education 等分类，点击 `Start Practice`，会载入内置原创话题。
