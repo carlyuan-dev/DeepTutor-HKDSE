@@ -1066,16 +1066,40 @@ export default function OralPracticePage() {
 
     return new Promise((resolve) => {
       const utterance = new SpeechSynthesisUtterance(msg.content);
-      const voiceConfig: Record<string, { pitch: number; rate: number }> = {
-        candidate_a: { pitch: 1.05, rate: 1.02 },
-        candidate_b: { pitch: 0.9, rate: 0.98 },
-        candidate_c: { pitch: 1.15, rate: 1 },
-        examiner: { pitch: 0.95, rate: 0.92 },
-      };
-      const config = voiceConfig[msg.speaker] ?? { pitch: 1, rate: 1 };
-      utterance.lang = "en-HK";
-      utterance.pitch = config.pitch;
-      utterance.rate = config.rate;
+      // Resolve on each turn: browsers may populate their voice list asynchronously.
+      const voices = window.speechSynthesis.getVoices()
+        .filter(voice => /^en(?:[-_]|$)/i.test(voice.lang));
+      const examinerVoice = voices.find(v => v.name === "Google UK English Female")
+        ?? voices.find(v => v.name === "Google US English")
+        ?? voices.find(v => /enhanced|premium|natural/i.test(v.name))
+        ?? voices.find(v => v.name === "Samantha")
+        ?? voices.find(v => v.default)
+        ?? voices.find(v => v.lang === "en-GB")
+        ?? voices[0];
+      // Keep the examiner's established voice; use distinct natural voices, not pitch shifts.
+      const preferredNames = ["Google UK English Male", "Google US English", "Samantha"];
+      const candidates = [
+        ...preferredNames.flatMap(name => voices.filter(v => v.name === name)),
+        ...voices.filter(v => /enhanced|premium|natural/i.test(v.name)),
+        ...voices,
+      ].filter(v => v !== examinerVoice);
+      const uniqueCandidates = candidates.filter((v, index, all) =>
+        all.findIndex(other => (other.voiceURI || other.name) === (v.voiceURI || v.name)) === index
+        && (v.voiceURI || v.name) !== (examinerVoice?.voiceURI || examinerVoice?.name));
+      const roleIndex = ["candidate_a", "candidate_b", "candidate_c"].indexOf(msg.speaker);
+      // C alone gets an alternative to Samantha; preserve the established A/B assignments.
+      const remainingVoices = uniqueCandidates.slice(2);
+      const candidateCVoice = ["Karen", "Moira", "Tessa"].flatMap(name =>
+        remainingVoices.filter(v => v.name === name || v.name.startsWith(name + " ("))
+          .sort((a, b) => Number(/enhanced|premium/i.test(b.name)) - Number(/enhanced|premium/i.test(a.name)))
+      )[0] ?? remainingVoices[0];
+      const voice = roleIndex < 0 ? examinerVoice
+        : roleIndex === 2 ? candidateCVoice ?? examinerVoice
+        : uniqueCandidates[roleIndex] ?? examinerVoice;
+      if (voice) utterance.voice = voice;
+      utterance.lang = voice?.lang ?? "en-GB";
+      utterance.pitch = 1;
+      utterance.rate = 1;
       utterance.onend = () => {
         if (ttsResolveRef.current === resolve) ttsResolveRef.current = null;
         resolve();

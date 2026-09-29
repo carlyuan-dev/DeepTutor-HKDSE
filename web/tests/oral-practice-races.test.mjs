@@ -21,7 +21,7 @@ const refs = declarations.filter(d => ts.isIdentifier(d.name) && d.name.text.end
 const stateNames = declarations.filter(d => ts.isArrayBindingPattern(d.name)).map(d => d.name.elements[0].name.text);
 const pageReturn = page.body.statements.filter(ts.isReturnStatement).at(-1);
 assert.ok(pageReturn);
-const exposed = ["sendAiTurn", "enterPartB", "prefetchNextAiTurn", "handleNewPractice",
+const exposed = ["speakAiMessage", "sendAiTurn", "enterPartB", "prefetchNextAiTurn", "handleNewPractice",
   "prefetchFromPartialUserTranscript", "submitUserTurn", "transcriptLooksCompatible",
   "scheduleNextAiTurn", "abortActiveAiTurn", "clearPreparedAiTurn", "revealAiMessageText", ...refs];
 const edits = [{ start: pageReturn.getStart(tree), end: pageReturn.end, text: `return {${exposed.join(",")}};` }];
@@ -41,7 +41,8 @@ const compiled = ts.transpileModule(instrumented, { compilerOptions: {
   target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX,
 } }).outputText;
 
-function mount({ speech = false } = {}) {
+function mount({ speech = false, voices = [] } = {}) {
+  const utterances = [];
   const spoken = [];
   const state = {}, effects = [], requests = [], timers = new Map();
   let stateIndex = 0, timerId = 0, now = 0;
@@ -70,7 +71,8 @@ function mount({ speech = false } = {}) {
     // No speech engine in this harness. Text-mode promises use the actual branch.
     SpeechSynthesisUtterance: class { constructor(text) { this.text = text; } },
     window: speech ? { speechSynthesis: {
-      cancel() {}, speak(utterance) { spoken.push(utterance.text); },
+      getVoices() { return voices; },
+      cancel() {}, speak(utterance) { spoken.push(utterance.text); utterances.push(utterance); },
     } } : {},
   };
   vm.runInNewContext(compiled, context, { filename: pageUrl.pathname });
@@ -91,7 +93,7 @@ function mount({ speech = false } = {}) {
     now = end;
     await flush();
   };
-  return { api, state, requests, timers, tick, spoken, unmount: () => cleanups.forEach(f => f()),
+  return { api, state, requests, timers, tick, spoken, utterances, unmount: () => cleanups.forEach(f => f()),
     finish(index, content) {
       const request = requests[index];
       // Intentionally deliver callbacks even after abort, to test page defenses.
@@ -103,6 +105,56 @@ function mount({ speech = false } = {}) {
 }
 
 async function flush() { for (let i = 0; i < 8; i++) await Promise.resolve(); }
+test("speech selects English voice and uses unmodified pitch and speed for every role", () => {
+  const english = { name: "Google UK English Female", lang: "en-GB" };
+  const h = mount({ speech: true, voices: [{ name: "Chinese", lang: "zh-CN" }, english] });
+  h.api.modeRef.current = "voice";
+  for (const speaker of ["candidate_a", "candidate_b", "candidate_c", "examiner"]) {
+    h.api.speakAiMessage({ speaker, content: "Hello." });
+    const u = h.utterances.at(-1);
+    assert.equal(u.voice, english);
+    assert.equal(u.lang, "en-GB");
+    assert.equal(u.pitch, 1);
+    assert.equal(u.rate, 1);
+    u.onend();
+  }
+});
+test("four speakers use distinct English voices while examiner keeps the original voice", () => {
+  const voices = ["Google UK English Female", "Google UK English Male", "Google US English", "Samantha"]
+    .map(name => ({ name, lang: "en-GB", voiceURI: name }));
+  const h = mount({ speech: true, voices });
+  h.api.modeRef.current = "voice";
+  for (const speaker of ["examiner", "candidate_a", "candidate_b", "candidate_c"]) {
+    h.api.speakAiMessage({ speaker, content: "Hello." });
+    h.utterances.at(-1).onend();
+  }
+  assert.equal(h.utterances[0].voice, voices[0]);
+  assert.equal(new Set(h.utterances.map(u => u.voice)).size, 4);
+  for (const u of h.utterances) {
+    assert.equal(u.pitch, 1);
+    assert.equal(u.rate, 1);
+  }
+});
+test("candidate C prefers an alternative voice without changing A, B or examiner", () => {
+  const names = ["Google UK English Female", "Google UK English Male", "Google US English", "Samantha", "Karen"];
+  const voices = names.map(name => ({ name, lang: "en-US", voiceURI: name }));
+  const h = mount({ speech: true, voices });
+  h.api.modeRef.current = "voice";
+  for (const speaker of ["examiner", "candidate_a", "candidate_b", "candidate_c"]) {
+    h.api.speakAiMessage({ speaker, content: "Hello." });
+    h.utterances.at(-1).onend();
+  }
+  assert.deepEqual(h.utterances.map(u => u.voice.name),
+    ["Google UK English Female", "Google UK English Male", "Google US English", "Karen"]);
+});
+test("speech falls back without blocking when voices are not yet available", () => {
+  const h = mount({ speech: true });
+  h.api.modeRef.current = "voice";
+  h.api.speakAiMessage({ speaker: "examiner", content: "Hello." });
+  assert.equal(h.utterances.length, 1);
+  assert.equal(h.utterances[0].lang, "en-GB");
+  h.utterances[0].onend();
+});
 function discussion(h) {
   h.api.topicIdRef.current = "test-topic";
   h.api.topicRef.current = { topic_id: "test-topic", guiding_questions: ["Discuss school libraries."] };
