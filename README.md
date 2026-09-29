@@ -6,6 +6,12 @@
 
 技术栈：Python、FastAPI、Next.js / React、SQLite、LlamaIndex、LLM 工具调用、Dense / BM25 / RRF 检索。
 
+## 快速体验
+
+首次使用请按 [快速体验指南](docs/QUICKSTART.md) 安装、配置模型并走通数学 Agent、英语口语、Learning Loop 和课程检索。仓库已提供 [中英数小型示例材料](examples/hkdse/README.md)，不需要作者的本地数据。
+
+数学 Agent 和口语需要 LLM 服务；知识库检索另需 Embedding 服务。请使用自己的凭据，示例索引会在本地生成。
+
 ## 界面预览
 
 中英数学科入口：
@@ -69,6 +75,7 @@ python -m deeptutor_cli start
 
 ## 文档
 
+- [快速体验](docs/QUICKSTART.md)：模型配置、示例导入与四条操作路线。
 - [开发指南](docs/DEVELOPMENT.md)：配置、启动与测试命令。
 - [系统架构](docs/ARCHITECTURE.md)：模块职责、调用路径与状态管理。
 - [测试与检索评测](docs/EVIDENCE.md)：测试范围、实验参数、结果与局限。

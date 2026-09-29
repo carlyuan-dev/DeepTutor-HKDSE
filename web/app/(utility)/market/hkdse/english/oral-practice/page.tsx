@@ -253,8 +253,8 @@ function ConfigStage({
   return (
     <div className="max-w-xl space-y-6">
       <p className="text-sm text-[var(--muted-foreground)]">
-        Select a discussion topic category. We will randomly pick a real
-        HKDSE Paper 4 discussion task for you to practice with.
+        Select a discussion topic category. We will pick an HKDSE-style
+        discussion task for you to practice with. Built-in topics are original examples, not official past papers.
       </p>
 
       <div className="space-y-1.5">
