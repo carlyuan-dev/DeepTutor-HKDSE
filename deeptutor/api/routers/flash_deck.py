@@ -79,6 +79,25 @@ def _build_cards_prompt(topics: list[str], context: str, num_cards: int) -> str:
 # Endpoint
 # ---------------------------------------------------------------------------
 
+def _parse_cards(raw: str, expected: int) -> dict[str, Any]:
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+    result = json.loads(cleaned)
+    cards = result.get("cards") if isinstance(result, dict) else None
+    if not isinstance(cards, list) or len(cards) != expected:
+        raise ValueError("Wrong card count")
+    for i, card in enumerate(cards):
+        if not isinstance(card, dict) or any(
+            not isinstance(card.get(key), str) or not card[key].strip()
+            for key in ("topic", "front", "back")
+        ):
+            raise ValueError("Incomplete card")
+        card["id"] = f"c{i + 1}"
+    return {"cards": cards}
+
+
 @router.post("/generate")
 async def generate_cards(req: GenerateCardsRequest) -> dict[str, Any]:
     """Generate flashcards for the given topics."""
@@ -91,20 +110,22 @@ async def generate_cards(req: GenerateCardsRequest) -> dict[str, Any]:
         system_prompt = "You are an expert flashcard creator. Output only valid JSON."
         user_prompt = _build_cards_prompt(req.topics, context, num_cards)
 
-        raw = await llm_complete(user_prompt, system_prompt=system_prompt)
-
-        cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            lines = cleaned.splitlines()
-            cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-
-        result: dict[str, Any] = json.loads(cleaned)
-
-        # Assign stable IDs
-        for i, card in enumerate(result.get("cards", [])):
-            card.setdefault("id", f"c{i + 1}")
-
-        return result
+        # Larger decks need more output space than the generic 4096-token default.
+        # Retry only invalid model content, not transport/authentication errors.
+        for attempt in range(2):
+            raw = await llm_complete(
+                user_prompt, system_prompt=system_prompt,
+                max_tokens=max(4096, num_cards * 512),
+            )
+            try:
+                return _parse_cards(raw, num_cards)
+            except (ValueError, TypeError, AttributeError) as exc:
+                logger.warning("FlashDeck invalid output on attempt %s: %s", attempt + 1, type(exc).__name__)
+                user_prompt += "\nThe previous output was incomplete. Return every requested card as complete JSON, with concise answers."
+        return {
+            "error": "The model did not return a complete flashcard set. Please try again.",
+            "retryable": True,
+        }
 
     except Exception as exc:
         logger.error(f"FlashDeck generation error: {exc}\n{traceback.format_exc()}")
