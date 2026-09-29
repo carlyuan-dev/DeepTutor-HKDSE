@@ -67,11 +67,35 @@ python -m deeptutor_cli start
 
 从学科试卷生成页面或通用试卷工具开始，选择学科、知识库及练习内容。完成作答后进入批改，根据本次反馈中的薄弱项继续针对性练习，或生成闪卡复习。再练会沿用原练习的学科与知识库；知识库已删除时需重新确认，系统不会静默替换。
 
+首次体验可以从三道题开始：
+
+1. 按快速体验指南导入数学示例，在 Market → PaperForge 中填写学科 `HKDSE Mathematics`，选择 `demo-hkdse-maths` 知识库，将题数设为 3、难度设为 Easy。
+2. 点击 Generate Paper；选择题直接点选答案，简答题填写解答，完成后点击 Submit & Grade。
+3. 在批改页查看逐题反馈与 Weak Areas to Review。点击 Review with FlashDeck 复习本次薄弱项，或 Retake Exam 继续练习。再练时可重新调整题数和难度。
+
+以下为使用仓库示例材料的实际运行截图，题目和模型反馈每次可能不同。
+
+![生成试卷并作答](docs/images/paper-practice.png)
+
+批改页将得分、错题原因与后续复习入口放在一起：
+
+![批改与薄弱项反馈](docs/images/grading-feedback.png)
+
+从本次反馈进入闪卡页，点击卡片查看答案，再按掌握程度标记：
+
+![针对薄弱项生成的复习闪卡](docs/images/flashcard-review.png)
+
 ### 英语口语模拟
 
 进入英文工作台的口语模拟页面，配置话题后按页面提示完成准备、讨论和个人回答。语音输入需要浏览器权限，语音识别与播报可用性取决于浏览器和设备；刷新页面不会恢复上一场口语会话。
 
 内置教育、科技、环境和社会议题四类原创演示材料，包含背景短文、小组讨论任务及个人回答问题，可直接用于体验。它们是虚构练习场景，不是官方试题。
+
+在英文工作台选择 Oral Practice → Education & Learning → Start Practice，阅读准备材料后进入讨论；快速体验时可点击 Skip Preparation & Start Discussion。轮到自己时按 Speak 开始、Stop 结束，Skip to Part B 可进入个人回答阶段。
+
+三位模拟考生与考官优先使用不同英语音色，不通过变调区分角色；实际音色取决于浏览器和系统可用语音，数量不足时会复用。
+
+![口语小组讨论中的模拟考生发言](docs/images/oral-discussion.png)
 
 ## 文档
 
