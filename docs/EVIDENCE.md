@@ -1,5 +1,7 @@
 # 测试与检索评测
 
+三科客观题学习链的新增实现与验收见 [三科学习工具链验收](design/2026-09-30-multisubject-learning-validation.md)。下文历史数学验收保留原口径，不追溯改写为三科测试。
+
 ## 数学学习与工具协议
 
 核心测试位于 `tests/services/learning/test_learning_chain.py`、`tests/agents/chat/test_learning_chain_flow.py`、`tests/api/test_learning_chain_market.py` 和 `tests/core/test_labeled_step_*.py`。分别验证评分服务、工具链与 API 以及动作标签边界；使用假模型的测试不证明模型自主决策质量。

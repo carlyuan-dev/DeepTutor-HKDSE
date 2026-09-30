@@ -35,7 +35,7 @@ Windows PowerShell 的虚拟环境激活命令为 `.venv\Scripts\Activate.ps1`�
 3. 填写账户实际可用的 Model ID，选择其为活动模型。
 4. 使用 `Run test` 检查连通性，然后点击设置页的 `Apply` 应用配置。刷新页面确认配置保留。
 
-数学 Agent 需要模型支持工具调用；仅能生成普通文本的服务不足以体验工具链。不同模型输出可能不同，不要求逐字复现示例。
+三科学习工具链需要模型支持工具调用；仅能生成普通文本的服务不足以体验工具链。不同模型输出可能不同，不要求逐字复现示例。
 
 项目此前使用 DeepSeek 兼容服务与 `deepseek-flash`；这不是通用默认值，请确认你的账户支持所填模型。不要把 DeepSeek 的 Key 填到 OpenAI 端点。LLM Key 也不能默认用于另一供应商的 Embedding 服务。
 
@@ -65,19 +65,29 @@ python -m deeptutor_cli kb create demo-hkdse-maths --doc examples/hkdse/maths/qu
 
 CLI 和网页应使用同一运行目录。同名库会被拒绝创建，不覆盖旧库。小型资料足以体验链路，不代表课程知识覆盖率或历史检索指标。
 
-## A. 数学学习 Agent
+## A. 三科客观题学习工具链
 
 在 `/chat` 选择普通聊天能力，新建会话并发送：
 
 > 请先读取我的数学学习记录，再给我一道判别式的基础选择题。请用练习工具出题并等待我作答，暂时不要透露答案。
 
+中文、英文可分别尝试：
+
+> 请先读取我的中文学习记录，出一篇繁体中文短文和一道阅读理解选择题，展示原文并等待我作答，不要先透露答案。
+
+> Please read my English learning record, then create a short reading passage with one comprehension multiple-choice question. Show the passage and wait for my answer before grading.
+
+也可请求英文语法选择题。模型使用共享的 `get_learning_state`、`explain_learning_concept`、`create_learning_practice`、`submit_learning_answer` 工具，并明确传入学科；数学旧工具入口保留兼容，不重复展示给模型。
+
 应看到读取学习记录和创建练习的工具过程，随后出现等待作答交互。第一次没有成绩属于正常状态，不需要导入旧记录。完成作答后，让系统提交评分；再询问：
 
-> 请重新读取我的学习记录，告诉我刚才这道练习的得分和下一步建议。
+> 请重新读取我的数学学习记录，告诉我刚才这道练习的得分和下一步建议。
 
 检查返回状态中是否出现本次作答。如果只返回普通题目文字、没有工具调用或作答交互，先检查所选能力、活动模型和工具调用兼容性。
 
 学习记录保存于服务端；等待作答的执行任务只支持同进程续接，重启后不保证恢复原暂停栈。
+
+同一聊天可切换学科，再明确要求继续原学科的待答练习；不会将英语成绩计入数学记录。待答题和阅读原文保存在服务端，已评分记录不能改答案重新累计；重新练习应创建新题。旧数学记录首次使用时事务迁移，部署已有数据前建议备份 `data/user/learning_chain.db`。
 
 ## B. 英语口语模拟
 
