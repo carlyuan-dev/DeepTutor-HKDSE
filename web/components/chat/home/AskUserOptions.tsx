@@ -617,7 +617,7 @@ const QuestionBody = memo(function QuestionBody({
 
   return (
     <>
-      <div className="mt-3 text-[14px] font-medium leading-snug text-[var(--foreground)]">
+      <div className="mt-3 whitespace-pre-wrap text-[14px] font-medium leading-snug text-[var(--foreground)]">
         {question.prompt}
       </div>
 
@@ -795,7 +795,7 @@ const ResolvedAskUserCard = memo(function ResolvedAskUserCard({
                   {index + 1}
                 </span>
                 <div className="min-w-0 flex-1 space-y-0.5">
-                  <div className="text-[12px] font-medium leading-snug text-[var(--foreground)]">
+                  <div className="whitespace-pre-wrap text-[12px] font-medium leading-snug text-[var(--foreground)]">
                     {q.prompt}
                   </div>
                   <div className="text-[11px] leading-snug text-[var(--muted-foreground)]/70">
