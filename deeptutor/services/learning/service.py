@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 import json
+import hashlib
 import logging
 from pathlib import Path
 import re
@@ -18,6 +19,9 @@ import sqlite3
 import time
 from typing import Any
 from uuid import uuid4
+
+from .subjects import ALIASES, DEFAULT_TOPICS, normalise_subject
+from .migrations import migrate_subjects
 
 logger = logging.getLogger(__name__)
 
@@ -110,15 +114,15 @@ def _normalise_choice(value: Any) -> str:
     return match.group(1) if match else ""
 
 
-def _normalise_topic(raw: Any) -> dict[str, Any]:
+def _normalise_topic(raw: Any, subject: str = "Mathematics") -> dict[str, Any]:
     display = re.sub(r"\s+", " ", str(raw or "").strip())
     if not display:
-        display = "Algebra"
-    known = _TOPIC_ALIASES.get(display.casefold())
+        display = DEFAULT_TOPICS[subject]
+    known = (_TOPIC_ALIASES if subject == "Mathematics" else ALIASES[subject]).get(display.casefold())
     if known:
         topic_id, canonical_display = known
         return {"topic_id": topic_id, "topic_name": canonical_display, "mapped": True}
-    slug = re.sub(r"[^a-z0-9]+", "-", display.casefold()).strip("-") or "unknown"
+    slug = hashlib.sha256(display.casefold().encode("utf-8")).hexdigest()[:20]
     return {
         "topic_id": f"unmapped:{slug}",
         "topic_name": display,
@@ -237,7 +241,10 @@ class LearningChainService:
                 """
             )
 
-    async def get_state(self, *, chat_session_id: str = "") -> dict[str, Any]:
+        migrate_subjects(self.db_path)
+
+    async def get_state(self, *, chat_session_id: str = "", subject: str = "Mathematics") -> dict[str, Any]:
+        subject = normalise_subject(subject)
         session_key = str(chat_session_id or "").strip()
         with self._connect() as conn:
             session = None
@@ -245,17 +252,17 @@ class LearningChainService:
                 session = conn.execute(
                     """
                     SELECT * FROM learning_sessions
-                    WHERE owner_user_id = ? AND chat_session_id = ?
+                    WHERE owner_user_id = ? AND chat_session_id = ? AND subject = ?
                     """,
-                    (self.user_id, session_key),
+                    (self.user_id, session_key, subject),
                 ).fetchone()
             else:
                 session = conn.execute(
                     """
                     SELECT * FROM learning_sessions
-                    WHERE owner_user_id = ? ORDER BY updated_at DESC LIMIT 1
+                    WHERE owner_user_id = ? AND subject = ? ORDER BY updated_at DESC LIMIT 1
                     """,
-                    (self.user_id,),
+                    (self.user_id, subject),
                 ).fetchone()
 
             pending = None
@@ -308,10 +315,10 @@ class LearningChainService:
                 """
                 SELECT topic_id, topic_name, correct, total, last_percentage, updated_at
                 FROM learning_topic_scores
-                WHERE owner_user_id = ?
+                WHERE owner_user_id = ? AND subject = ?
                 ORDER BY last_percentage ASC, updated_at DESC
                 """,
-                (self.user_id,),
+                (self.user_id, subject),
             ).fetchall()
             topic_scores = [dict(row) for row in score_rows]
             weak_topics = [
@@ -332,7 +339,7 @@ class LearningChainService:
             return {
                 "learning_session_id": None if session is None else session["id"],
                 "chat_session_id": session_key or ("" if session is None else session["chat_session_id"]),
-                "subject": "Mathematics" if session is None else session["subject"],
+                "subject": subject,
                 "stage": stage,
                 "budget_minutes": 15 if session is None else session["budget_minutes"],
                 "has_history": has_history,
@@ -354,7 +361,9 @@ class LearningChainService:
         kb_name: str | None = None,
         language: str = "en",
         budget_minutes: int = 15,
+        subject: str = "Mathematics",
     ) -> dict[str, Any]:
+        subject = normalise_subject(subject)
         session_key = str(chat_session_id or "").strip()
         if not session_key:
             raise LearningValidationError("chat_session_id is required.")
@@ -374,11 +383,11 @@ class LearningChainService:
         if budget < 1 or budget > 120:
             raise LearningValidationError("budget_minutes must be between 1 and 120.")
 
-        pending = self._find_pending(chat_session_id=session_key)
+        pending = self._find_pending(chat_session_id=session_key, subject=subject)
         if pending is not None:
             return self._public_attempt(pending, resumed=True)
 
-        topic_rows = self._select_topics(topics or [])
+        topic_rows = self._select_topics(topics or [], subject=subject)
         try:
             generated = await self.question_generator(
                 activity=activity_name,
@@ -386,6 +395,7 @@ class LearningChainService:
                 num_questions=question_count,
                 kb_name=str(kb_name or "").strip() or None,
                 language="zh" if str(language).lower().startswith("zh") else "en",
+                subject=subject,
             )
         except LearningChainError:
             raise
@@ -393,7 +403,7 @@ class LearningChainService:
             raise LearningGenerationError(f"Question generation failed: {exc}") from exc
 
         public_questions, answer_key = self._validate_generated_questions(
-            generated, expected_count=question_count
+            generated, expected_count=question_count, subject=subject
         )
         now = time.time()
         learning_session_id = f"learn_{uuid4().hex}"
@@ -409,9 +419,9 @@ class LearningChainService:
             existing_session = conn.execute(
                 """
                 SELECT * FROM learning_sessions
-                WHERE owner_user_id = ? AND chat_session_id = ?
+                WHERE owner_user_id = ? AND chat_session_id = ? AND subject = ?
                 """,
-                (self.user_id, session_key),
+                (self.user_id, session_key, subject),
             ).fetchone()
             if existing_session is None:
                 conn.execute(
@@ -419,9 +429,9 @@ class LearningChainService:
                     INSERT INTO learning_sessions (
                         id, owner_user_id, chat_session_id, subject, stage,
                         budget_minutes, created_at, updated_at
-                    ) VALUES (?, ?, ?, 'Mathematics', 'needs_diagnostic', ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, 'needs_diagnostic', ?, ?, ?)
                     """,
-                    (learning_session_id, self.user_id, session_key, budget, now, now),
+                    (learning_session_id, self.user_id, session_key, subject, budget, now, now),
                 )
                 from_stage = "needs_diagnostic"
             else:
@@ -446,13 +456,14 @@ class LearningChainService:
                     id, learning_session_id, owner_user_id, activity, subject,
                     status, questions_json, answer_key_json,
                     knowledge_references_json, grounded, retrieval_status, created_at
-                ) VALUES (?, ?, ?, ?, 'Mathematics', 'awaiting_answer', ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, 'awaiting_answer', ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     attempt_id,
                     learning_session_id,
                     self.user_id,
                     activity_name,
+                    subject,
                     _json_dumps(public_questions),
                     _json_dumps(answer_key),
                     _json_dumps(references),
@@ -519,6 +530,9 @@ class LearningChainService:
                 raise LearningValidationError("Learning attempt was not found.")
 
             if row["status"] == "completed":
+                previous = _json_loads(row["answers_json"], {})
+                if {key: _normalise_choice(value) for key, value in answers.items()} != previous:
+                    raise LearningValidationError("Completed attempt received different answers (conflict).")
                 existing_result = _json_loads(row["result_json"], {})
                 existing_result["duplicate_submission"] = True
                 conn.rollback()
@@ -580,10 +594,10 @@ class LearningChainService:
                 conn.execute(
                     """
                     INSERT INTO learning_topic_scores (
-                        owner_user_id, topic_id, topic_name, correct, total,
+                        owner_user_id, subject, topic_id, topic_name, correct, total,
                         last_percentage, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(owner_user_id, topic_id) DO UPDATE SET
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(owner_user_id, subject, topic_id) DO UPDATE SET
                         topic_name = excluded.topic_name,
                         correct = learning_topic_scores.correct + excluded.correct,
                         total = learning_topic_scores.total + excluded.total,
@@ -592,6 +606,7 @@ class LearningChainService:
                     """,
                     (
                         self.user_id,
+                        row["subject"],
                         aggregate["topic_id"],
                         aggregate["topic_name"],
                         aggregate["correct"],
@@ -665,6 +680,7 @@ class LearningChainService:
                 recommendation = await self.recommendation_generator(
                     profile=result["profile"],
                     weak_topics=result["weak_topics"],
+                    subject=result["subject"],
                     language="zh" if str(language).lower().startswith("zh") else "en",
                 )
                 result["recommendation"] = str(recommendation or "").strip()
@@ -684,7 +700,9 @@ class LearningChainService:
         concept: str,
         kb_name: str | None = None,
         language: str = "en",
+        subject: str = "Mathematics",
     ) -> dict[str, Any]:
+        subject = normalise_subject(subject)
         session_key = str(chat_session_id or "").strip()
         concept_name = str(concept or "").strip()
         if not session_key:
@@ -694,6 +712,7 @@ class LearningChainService:
         try:
             result = await self.concept_generator(
                 concept=concept_name,
+                subject=subject,
                 kb_name=str(kb_name or "").strip() or None,
                 language="zh" if str(language).lower().startswith("zh") else "en",
             )
@@ -712,6 +731,7 @@ class LearningChainService:
                 chat_session_id=session_key,
                 budget_minutes=15,
                 now=now,
+                subject=subject,
             )
             from_stage = str(session["stage"])
             conn.execute(
@@ -736,23 +756,23 @@ class LearningChainService:
                 created_at=now,
             )
             conn.commit()
-        return {**result, "learning_session_id": session["id"], "stage": "explaining"}
+        return {**result, "learning_session_id": session["id"], "subject": subject, "stage": "explaining"}
 
-    def _find_pending(self, *, chat_session_id: str) -> sqlite3.Row | None:
+    def _find_pending(self, *, chat_session_id: str, subject: str = "Mathematics") -> sqlite3.Row | None:
         with self._connect() as conn:
             return conn.execute(
                 """
                 SELECT a.* FROM learning_attempts a
                 JOIN learning_sessions s ON s.id = a.learning_session_id
                 WHERE a.owner_user_id = ? AND s.owner_user_id = ?
-                  AND s.chat_session_id = ? AND a.status = 'awaiting_answer'
+                  AND s.chat_session_id = ? AND s.subject = ? AND a.status = 'awaiting_answer'
                 ORDER BY a.created_at DESC LIMIT 1
                 """,
-                (self.user_id, self.user_id, chat_session_id),
+                (self.user_id, self.user_id, chat_session_id, subject),
             ).fetchone()
 
-    def _select_topics(self, requested: list[str]) -> list[dict[str, Any]]:
-        normalised = [_normalise_topic(item) for item in requested if str(item or "").strip()]
+    def _select_topics(self, requested: list[str], *, subject: str = "Mathematics") -> list[dict[str, Any]]:
+        normalised = [_normalise_topic(item, subject) for item in requested if str(item or "").strip()]
         if normalised:
             unique: dict[str, dict[str, Any]] = {}
             for row in normalised[:8]:
@@ -762,21 +782,21 @@ class LearningChainService:
             weak = conn.execute(
                 """
                 SELECT topic_id, topic_name FROM learning_topic_scores
-                WHERE owner_user_id = ? AND last_percentage < 60
+                WHERE owner_user_id = ? AND subject = ? AND last_percentage < 60
                 ORDER BY last_percentage ASC, updated_at DESC LIMIT 3
                 """,
-                (self.user_id,),
+                (self.user_id, subject),
             ).fetchall()
         if weak:
             return [
                 {"topic_id": row["topic_id"], "topic_name": row["topic_name"], "mapped": True}
                 for row in weak
             ]
-        return [_normalise_topic("Algebra")]
+        return [_normalise_topic(DEFAULT_TOPICS[subject], subject)]
 
     @staticmethod
     def _validate_generated_questions(
-        generated: dict[str, Any], *, expected_count: int
+        generated: dict[str, Any], *, expected_count: int, subject: str = "Mathematics"
     ) -> tuple[list[dict[str, Any]], dict[str, dict[str, str]]]:
         if not isinstance(generated, dict):
             raise LearningGenerationError("Question generator must return an object.")
@@ -805,7 +825,7 @@ class LearningChainService:
             option_texts = [str(option or "").strip() for option in options]
             if any(not option for option in option_texts):
                 raise LearningGenerationError(f"Question {question_id} contains an empty option.")
-            topic = _normalise_topic(raw.get("topic"))
+            topic = _normalise_topic(raw.get("topic"), subject)
             public_questions.append(
                 {
                     "id": question_id,
@@ -846,13 +866,14 @@ class LearningChainService:
         chat_session_id: str,
         budget_minutes: int,
         now: float,
+        subject: str = "Mathematics",
     ) -> sqlite3.Row:
         row = conn.execute(
             """
             SELECT * FROM learning_sessions
-            WHERE owner_user_id = ? AND chat_session_id = ?
+            WHERE owner_user_id = ? AND chat_session_id = ? AND subject = ?
             """,
-            (self.user_id, chat_session_id),
+            (self.user_id, chat_session_id, subject),
         ).fetchone()
         if row is not None:
             return row
@@ -862,9 +883,9 @@ class LearningChainService:
             INSERT INTO learning_sessions (
                 id, owner_user_id, chat_session_id, subject, stage,
                 budget_minutes, created_at, updated_at
-            ) VALUES (?, ?, ?, 'Mathematics', 'needs_diagnostic', ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, 'needs_diagnostic', ?, ?, ?)
             """,
-            (session_id, self.user_id, chat_session_id, budget_minutes, now, now),
+            (session_id, self.user_id, chat_session_id, subject, budget_minutes, now, now),
         )
         return conn.execute(
             "SELECT * FROM learning_sessions WHERE id = ?", (session_id,)
@@ -935,6 +956,7 @@ async def _default_question_generator(
     num_questions: int,
     kb_name: str | None,
     language: str,
+    subject: str = "Mathematics",
 ) -> dict[str, Any]:
     from deeptutor.services.llm import complete as llm_complete
 
@@ -987,7 +1009,7 @@ async def _default_question_generator(
 
 
 async def _default_recommendation_generator(
-    *, profile: list[dict[str, Any]], weak_topics: list[str], language: str
+    *, profile: list[dict[str, Any]], weak_topics: list[str], language: str, subject: str = "Mathematics"
 ) -> str:
     from deeptutor.services.llm import complete as llm_complete
 
@@ -1005,7 +1027,7 @@ async def _default_recommendation_generator(
 
 
 async def _default_concept_generator(
-    *, concept: str, kb_name: str | None, language: str
+    *, concept: str, kb_name: str | None, language: str, subject: str = "Mathematics"
 ) -> dict[str, Any]:
     from deeptutor.services.llm import complete as llm_complete
 

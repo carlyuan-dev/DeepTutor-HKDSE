@@ -100,7 +100,7 @@ async def test_learning_attempt_recovers_and_duplicate_submit_does_not_rescore(t
 
     duplicate = await reloaded.submit_attempt(
         attempt_id=created["attempt_id"],
-        answers={"q1": "A", "q2": "C"},
+        answers={"q1": "B", "q2": "A"},
     )
     assert duplicate["duplicate_submission"] is True
     assert duplicate["score"] == 1
