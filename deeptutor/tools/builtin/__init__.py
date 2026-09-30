@@ -472,9 +472,11 @@ class GeoGebraAnalysisTool(_PromptHintsMixin, BaseTool):
             )
         if relations:
             relation_descriptions = [
-                relation.get("description", str(relation))
-                if isinstance(relation, dict)
-                else str(relation)
+                (
+                    relation.get("description", str(relation))
+                    if isinstance(relation, dict)
+                    else str(relation)
+                )
                 for relation in relations[:5]
             ]
             summary_parts.append(
@@ -1005,14 +1007,24 @@ def _learning_failure(exc: Exception) -> ToolResult:
     )
 
 
+def _learning_subject_parameter() -> ToolParameter:
+    return ToolParameter(
+        name="subject",
+        type="string",
+        enum=["Mathematics", "Chinese", "English"],
+        description="Explicit study subject. If unclear, ask the learner before calling this tool.",
+    )
+
+
 class GetLearningStateTool(_PromptHintsMixin, BaseTool):
     def get_definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="get_learning_state",
             description=(
-                "Read the authenticated learner's saved Mathematics state, weak-topic "
+                "Read the authenticated learner's saved state for one subject, weak-topic "
                 "performance estimates, last result, and any unfinished attempt."
             ),
+            parameters=[_learning_subject_parameter()],
         )
 
     async def execute(self, **kwargs: Any) -> ToolResult:
@@ -1020,7 +1032,8 @@ class GetLearningStateTool(_PromptHintsMixin, BaseTool):
 
         try:
             result = await get_learning_service().get_state(
-                chat_session_id=str(kwargs.get("session_id") or "")
+                chat_session_id=str(kwargs.get("session_id") or ""),
+                subject=kwargs.get("subject", "Mathematics"),
             )
         except Exception as exc:  # noqa: BLE001 - tool errors must return observations
             return _learning_failure(exc)
@@ -1031,6 +1044,8 @@ class GetLearningStateTool(_PromptHintsMixin, BaseTool):
 
 
 class CreateMathPracticeTool(_PromptHintsMixin, BaseTool):
+    requires_subject = False
+
     def get_definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="create_math_practice",
@@ -1080,6 +1095,12 @@ class CreateMathPracticeTool(_PromptHintsMixin, BaseTool):
 
         try:
             result = await get_learning_service().create_attempt(
+                subject=kwargs.get("subject") if self.requires_subject else "Mathematics",
+                practice_type=(
+                    kwargs.get("practice_type", "objective")
+                    if self.requires_subject
+                    else "objective"
+                ),
                 chat_session_id=str(kwargs.get("session_id") or ""),
                 activity=str(kwargs.get("activity") or "practice"),
                 topics=[str(item) for item in (kwargs.get("topics") or [])],
@@ -1142,7 +1163,9 @@ class SubmitMathAnswerTool(_PromptHintsMixin, BaseTool):
                     raise LearningValidationError("Each answer must be an object.")
                 question_id = str(entry.get("question_id") or "").strip()
                 if not question_id or question_id in answers:
-                    raise LearningValidationError("Answer question_ids must be non-empty and unique.")
+                    raise LearningValidationError(
+                        "Answer question_ids must be non-empty and unique."
+                    )
                 answers[question_id] = str(entry.get("answer") or "")
             result = await get_learning_service().submit_attempt(
                 attempt_id=str(kwargs.get("attempt_id") or ""),
@@ -1158,6 +1181,8 @@ class SubmitMathAnswerTool(_PromptHintsMixin, BaseTool):
 
 
 class ExplainMathConceptTool(_PromptHintsMixin, BaseTool):
+    requires_subject = False
+
     def get_definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="explain_math_concept",
@@ -1185,6 +1210,7 @@ class ExplainMathConceptTool(_PromptHintsMixin, BaseTool):
 
         try:
             result = await get_learning_service().explain_concept(
+                subject=kwargs.get("subject") if self.requires_subject else "Mathematics",
                 chat_session_id=str(kwargs.get("session_id") or ""),
                 concept=str(kwargs.get("concept") or ""),
                 kb_name=kwargs.get("kb_name"),
@@ -1198,6 +1224,58 @@ class ExplainMathConceptTool(_PromptHintsMixin, BaseTool):
             metadata={"learning_explanation": result},
             sources=[dict(item) for item in references if isinstance(item, dict)],
         )
+
+
+class CreateLearningPracticeTool(CreateMathPracticeTool):
+    requires_subject = True
+
+    def get_definition(self) -> ToolDefinition:
+        definition = super().get_definition()
+        definition.name = "create_learning_practice"
+        definition.description = "Create or recover a saved objective practice for Chinese, English or Mathematics. Answers remain server-side."
+        definition.parameters.insert(0, _learning_subject_parameter())
+        for parameter in definition.parameters:
+            parameter.description = parameter.description.replace(
+                "Mathematics topic", "subject topic"
+            )
+        definition.parameters.append(
+            ToolParameter(
+                name="practice_type",
+                type="string",
+                required=False,
+                enum=["objective", "reading"],
+                description="Use reading for passage-based Chinese/English questions; otherwise objective.",
+            )
+        )
+        return definition
+
+
+class ExplainLearningConceptTool(ExplainMathConceptTool):
+    requires_subject = True
+
+    def get_definition(self) -> ToolDefinition:
+        definition = super().get_definition()
+        definition.name = "explain_learning_concept"
+        definition.description = (
+            "Explain a concept in the chosen subject, optionally using an attached knowledge base."
+        )
+        definition.parameters.insert(0, _learning_subject_parameter())
+        for parameter in definition.parameters:
+            parameter.description = parameter.description.replace(
+                "Mathematics concept", "subject concept"
+            )
+        return definition
+
+
+class SubmitLearningAnswerTool(SubmitMathAnswerTool):
+    def get_definition(self) -> ToolDefinition:
+        definition = super().get_definition()
+        definition.name = "submit_learning_answer"
+        definition.description = "Submit answers to a saved learning attempt for deterministic scoring. Subject and owner come from the server record."
+        definition.parameters[0].description = (
+            "Exact attempt_id returned by create_learning_practice."
+        )
+        return definition
 
 
 class AskUserTool(_PromptHintsMixin, BaseTool):
@@ -1224,10 +1302,23 @@ class AskUserTool(_PromptHintsMixin, BaseTool):
                 "switch between; the user answers each, then submits "
                 "once. The turn does NOT end — when the answers arrive "
                 "the agentic loop resumes with them as this tool's "
-                "result. Use sparingly: only when intent is genuinely "
-                "ambiguous and progress without clarification is unsafe."
+                "result. Use for necessary clarification or saved learning "
+                "practice: provide learning_attempt_id to show server questions."
             ),
             parameters=[
+                ToolParameter(
+                    name="learning_attempt_id",
+                    type="string",
+                    required=False,
+                    description="For saved learning practice, use its attempt_id; the server supplies exact questions and reading passages.",
+                ),
+                ToolParameter(
+                    name="question_ids",
+                    type="array",
+                    required=False,
+                    items={"type": "string"},
+                    description="1-3 saved question IDs for learning_attempt_id; omit to show the first three.",
+                ),
                 ToolParameter(
                     name="questions",
                     type="array",
@@ -1288,14 +1379,49 @@ class AskUserTool(_PromptHintsMixin, BaseTool):
         )
 
     async def execute(self, **kwargs: Any) -> ToolResult:
-        from deeptutor.tools.ask_user import build_ask_user_payload
+        from deeptutor.tools.ask_user import AskUserPayload, AskUserQuestion, build_ask_user_payload
 
-        payload, err = build_ask_user_payload(
-            questions=kwargs.get("questions"),
-            intro=kwargs.get("intro"),
-            question=kwargs.get("question"),
-            options=kwargs.get("options"),
-        )
+        if kwargs.get("learning_attempt_id"):
+            from deeptutor.services.learning import get_learning_service, LearningValidationError
+
+            try:
+                attempt = get_learning_service().get_pending_attempt_for_chat(
+                    str(kwargs["learning_attempt_id"]), str(kwargs.get("session_id") or "")
+                )
+                saved = {q["id"]: q for q in attempt["questions"]}
+                ids = kwargs.get("question_ids", list(saved)[:3])
+                if (
+                    not isinstance(ids, list)
+                    or not 1 <= len(ids) <= 3
+                    or any(not isinstance(qid, str) or qid not in saved for qid in ids)
+                    or len(set(ids)) != len(ids)
+                ):
+                    raise LearningValidationError("Select 1-3 unique saved question IDs.")
+                # Saved, validated material must not pass through the shorter
+                # free-form clarification limits (800-char prompt / 120-char option).
+                payload = AskUserPayload(
+                    questions=tuple(
+                        AskUserQuestion(
+                            id=qid,
+                            prompt="\n\n".join(
+                                filter(None, [saved[qid].get("passage"), saved[qid]["question"]])
+                            ),
+                            options=tuple(saved[qid]["options"]),
+                        )
+                        for qid in ids
+                    ),
+                    intro=attempt["subject"],
+                )
+                err = None
+            except LearningValidationError as exc:
+                return ToolResult(content=str(exc), success=False)
+        else:
+            payload, err = build_ask_user_payload(
+                questions=kwargs.get("questions"),
+                intro=kwargs.get("intro"),
+                question=kwargs.get("question"),
+                options=kwargs.get("options"),
+            )
         if payload is None:
             return ToolResult(content=err or "Invalid ask_user arguments.", success=False)
 
@@ -1328,6 +1454,9 @@ BUILTIN_TOOL_TYPES: tuple[type[BaseTool], ...] = (
     WriteNoteTool,
     GithubTool,
     GetLearningStateTool,
+    ExplainLearningConceptTool,
+    CreateLearningPracticeTool,
+    SubmitLearningAnswerTool,
     ExplainMathConceptTool,
     CreateMathPracticeTool,
     SubmitMathAnswerTool,
@@ -1382,6 +1511,9 @@ __all__ = [
     "GetLearningStateTool",
     "GithubTool",
     "CreateMathPracticeTool",
+    "CreateLearningPracticeTool",
+    "ExplainLearningConceptTool",
+    "SubmitLearningAnswerTool",
     "ExplainMathConceptTool",
     "ListNotebookTool",
     "PaperSearchToolWrapper",

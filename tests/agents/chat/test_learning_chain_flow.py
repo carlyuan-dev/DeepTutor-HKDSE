@@ -42,7 +42,7 @@ async def _stream(*chunks: SimpleNamespace):
 class _ObservationDrivenClient:
     """Tiny deterministic policy that chooses each action from tool observations."""
 
-    def __init__(self) -> None:
+    def __init__(self, subject="Mathematics") -> None:
         self.call_count = 0
         self.observed_attempt_id = ""
         self.calls: list[list[dict[str, Any]]] = []
@@ -61,7 +61,11 @@ class _ObservationDrivenClient:
                         _chunk(content="``TOOL``\nI will inspect saved learning state."),
                         _chunk(
                             tool_calls=[
-                                {"id": "state", "name": "get_learning_state", "arguments": {}}
+                                {
+                                    "id": "state",
+                                    "name": "get_learning_state",
+                                    "arguments": {"subject": subject},
+                                }
                             ]
                         ),
                     )
@@ -70,13 +74,16 @@ class _ObservationDrivenClient:
                     state = json.loads(tool_messages[-1]["content"])
                     assert state["stage"] == "needs_diagnostic"
                     return _stream(
-                        _chunk(content="``TOOL``\nNo history exists, so I will create a diagnostic."),
+                        _chunk(
+                            content="``TOOL``\nNo history exists, so I will create a diagnostic."
+                        ),
                         _chunk(
                             tool_calls=[
                                 {
                                     "id": "create",
-                                    "name": "create_math_practice",
+                                    "name": "create_learning_practice",
                                     "arguments": {
+                                        "subject": subject,
                                         "activity": "diagnostic",
                                         "topics": ["Algebra"],
                                         "num_questions": 1,
@@ -99,13 +106,8 @@ class _ObservationDrivenClient:
                                     "id": "ask",
                                     "name": "ask_user",
                                     "arguments": {
-                                        "questions": [
-                                            {
-                                                "id": question["id"],
-                                                "prompt": question["question"],
-                                                "options": question["options"],
-                                            }
-                                        ]
+                                        "learning_attempt_id": attempt["attempt_id"],
+                                        "question_ids": [question["id"]],
                                     },
                                 }
                             ]
@@ -121,7 +123,7 @@ class _ObservationDrivenClient:
                             tool_calls=[
                                 {
                                     "id": "submit",
-                                    "name": "submit_math_answer",
+                                    "name": "submit_learning_answer",
                                     "arguments": {
                                         "attempt_id": parent.observed_attempt_id,
                                         "answers": [{"question_id": "q1", "answer": "A"}],
@@ -139,8 +141,9 @@ class _ObservationDrivenClient:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("subject", ["Mathematics", "Chinese", "English"])
 async def test_chat_agent_uses_learning_observations_then_pauses_and_scores(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
+    monkeypatch: pytest.MonkeyPatch, tmp_path, subject
 ) -> None:
     from deeptutor.services.learning import LearningChainService
 
@@ -183,16 +186,12 @@ async def test_chat_agent_uses_learning_observations_then_pauses_and_scores(
             max_tokens=4096,
         ),
     )
-    monkeypatch.setattr(
-        "deeptutor.agents.chat.agentic_pipeline.user_has_memory", lambda: False
-    )
-    monkeypatch.setattr(
-        "deeptutor.agents.chat.agentic_pipeline.user_has_notebooks", lambda: False
-    )
+    monkeypatch.setattr("deeptutor.agents.chat.agentic_pipeline.user_has_memory", lambda: False)
+    monkeypatch.setattr("deeptutor.agents.chat.agentic_pipeline.user_has_notebooks", lambda: False)
 
     registry = ToolRegistry()
     registry.load_builtins()
-    client = _ObservationDrivenClient()
+    client = _ObservationDrivenClient(subject)
     pipeline = AgenticChatPipeline(language="en")
     pipeline.registry = registry
     monkeypatch.setattr(pipeline, "_build_openai_client", lambda: client)
@@ -227,18 +226,16 @@ async def test_chat_agent_uses_learning_observations_then_pauses_and_scores(
 
     assert client.call_count == 5
     assert client.observed_attempt_id
-    called_tools = [
-        event.content for event in events if event.type == StreamEventType.TOOL_CALL
-    ]
+    called_tools = [event.content for event in events if event.type == StreamEventType.TOOL_CALL]
     assert called_tools == [
         "get_learning_state",
-        "create_math_practice",
+        "create_learning_practice",
         "ask_user",
-        "submit_math_answer",
+        "submit_learning_answer",
     ]
     result = [event for event in events if event.type == StreamEventType.RESULT][-1]
     assert result.metadata["completed"] is True
     assert result.metadata["response"] == "You scored 1/1; the result was saved."
-    state = await service.get_state(chat_session_id="chat-1")
+    state = await service.get_state(chat_session_id="chat-1", subject=subject)
     assert state["stage"] == "completed"
     assert state["last_result"]["score"] == 1

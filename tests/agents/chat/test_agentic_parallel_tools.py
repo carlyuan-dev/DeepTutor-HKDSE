@@ -175,9 +175,9 @@ _ALWAYS_ON_TOOLS = [
     "web_fetch",
     "github",
     "get_learning_state",
-    "explain_math_concept",
-    "create_math_practice",
-    "submit_math_answer",
+    "explain_learning_concept",
+    "create_learning_practice",
+    "submit_learning_answer",
     "ask_user",
 ]
 

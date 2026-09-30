@@ -87,8 +87,9 @@ async def dispatch_tool_calls(
     too_many_tool_calls_message: str | None = None,
     unknown_error_message_factory: UnknownErrorMessageFactory | None = None,
     trace_id_prefix: str = "iter",
+    sequential: bool = False,
 ) -> DispatchOutcome:
-    """Execute tool calls in parallel and assemble a :class:`DispatchOutcome`."""
+    """Dispatch tools; callers can serialize batches with state dependencies."""
     registry = registry or get_tool_registry()
 
     if len(tool_calls) > MAX_PARALLEL_TOOL_CALLS:
@@ -170,7 +171,10 @@ async def dispatch_tool_calls(
             retrieve_label=retrieve_label,
         )
 
-    results = await asyncio.gather(*[_run_one(i) for i in range(len(prepared))])
+    if sequential:
+        results = [await _run_one(i) for i in range(len(prepared))]
+    else:
+        results = await asyncio.gather(*[_run_one(i) for i in range(len(prepared))])
 
     return await _collect_outcome(
         prepared=prepared,

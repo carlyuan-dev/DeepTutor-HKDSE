@@ -90,9 +90,7 @@ def _parse_json_object(raw: str) -> dict[str, Any]:
     cleaned = str(raw or "").strip()
     if cleaned.startswith("```"):
         lines = cleaned.splitlines()
-        cleaned = "\n".join(
-            lines[1:-1] if lines and lines[-1].strip() == "```" else lines[1:]
-        )
+        cleaned = "\n".join(lines[1:-1] if lines and lines[-1].strip() == "```" else lines[1:])
     try:
         parsed = json.loads(cleaned)
     except json.JSONDecodeError:
@@ -118,11 +116,16 @@ def _normalise_topic(raw: Any, subject: str = "Mathematics") -> dict[str, Any]:
     display = re.sub(r"\s+", " ", str(raw or "").strip())
     if not display:
         display = DEFAULT_TOPICS[subject]
-    known = (_TOPIC_ALIASES if subject == "Mathematics" else ALIASES[subject]).get(display.casefold())
+    known = (_TOPIC_ALIASES if subject == "Mathematics" else ALIASES[subject]).get(
+        display.casefold()
+    )
     if known:
         topic_id, canonical_display = known
         return {"topic_id": topic_id, "topic_name": canonical_display, "mapped": True}
     slug = hashlib.sha256(display.casefold().encode("utf-8")).hexdigest()[:20]
+    if subject == "Mathematics":
+        # Keep IDs already stored by the original mathematics workflow.
+        slug = re.sub(r"[^a-z0-9]+", "-", display.casefold()).strip("-") or "unknown"
     return {
         "topic_id": f"unmapped:{slug}",
         "topic_name": display,
@@ -243,7 +246,23 @@ class LearningChainService:
 
         migrate_subjects(self.db_path)
 
-    async def get_state(self, *, chat_session_id: str = "", subject: str = "Mathematics") -> dict[str, Any]:
+    def get_pending_attempt_for_chat(self, attempt_id: str, chat_session_id: str) -> dict[str, Any]:
+        """Return only public questions owned by this user and current chat."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """SELECT a.* FROM learning_attempts a
+                   JOIN learning_sessions s ON s.id = a.learning_session_id
+                   WHERE a.id = ? AND a.owner_user_id = ?
+                     AND s.chat_session_id = ? AND a.status = 'awaiting_answer'""",
+                (attempt_id, self.user_id, chat_session_id),
+            ).fetchone()
+        if row is None:
+            raise LearningValidationError("No pending attempt in the current chat.")
+        return self._public_attempt(row, resumed=True)
+
+    async def get_state(
+        self, *, chat_session_id: str = "", subject: str = "Mathematics"
+    ) -> dict[str, Any]:
         subject = normalise_subject(subject)
         session_key = str(chat_session_id or "").strip()
         with self._connect() as conn:
@@ -338,7 +357,8 @@ class LearningChainService:
             )
             return {
                 "learning_session_id": None if session is None else session["id"],
-                "chat_session_id": session_key or ("" if session is None else session["chat_session_id"]),
+                "chat_session_id": session_key
+                or ("" if session is None else session["chat_session_id"]),
                 "subject": subject,
                 "stage": stage,
                 "budget_minutes": 15 if session is None else session["budget_minutes"],
@@ -362,8 +382,13 @@ class LearningChainService:
         language: str = "en",
         budget_minutes: int = 15,
         subject: str = "Mathematics",
+        practice_type: str = "objective",
     ) -> dict[str, Any]:
         subject = normalise_subject(subject)
+        if practice_type not in {"objective", "reading"}:
+            raise LearningValidationError("practice_type must be objective or reading.")
+        if practice_type == "reading" and subject == "Mathematics":
+            raise LearningValidationError("Reading practice is for Chinese or English.")
         session_key = str(chat_session_id or "").strip()
         if not session_key:
             raise LearningValidationError("chat_session_id is required.")
@@ -387,6 +412,8 @@ class LearningChainService:
         if pending is not None:
             return self._public_attempt(pending, resumed=True)
 
+        if not topics and practice_type == "reading":
+            topics = ["閱讀理解" if subject == "Chinese" else "Reading comprehension"]
         topic_rows = self._select_topics(topics or [], subject=subject)
         try:
             generated = await self.question_generator(
@@ -396,6 +423,7 @@ class LearningChainService:
                 kb_name=str(kb_name or "").strip() or None,
                 language="zh" if str(language).lower().startswith("zh") else "en",
                 subject=subject,
+                practice_type=practice_type,
             )
         except LearningChainError:
             raise
@@ -403,7 +431,10 @@ class LearningChainService:
             raise LearningGenerationError(f"Question generation failed: {exc}") from exc
 
         public_questions, answer_key = self._validate_generated_questions(
-            generated, expected_count=question_count, subject=subject
+            generated,
+            expected_count=question_count,
+            subject=subject,
+            require_passage=practice_type == "reading",
         )
         now = time.time()
         learning_session_id = f"learn_{uuid4().hex}"
@@ -532,7 +563,9 @@ class LearningChainService:
             if row["status"] == "completed":
                 previous = _json_loads(row["answers_json"], {})
                 if {key: _normalise_choice(value) for key, value in answers.items()} != previous:
-                    raise LearningValidationError("Completed attempt received different answers (conflict).")
+                    raise LearningValidationError(
+                        "Completed attempt received different answers (conflict)."
+                    )
                 existing_result = _json_loads(row["result_json"], {})
                 existing_result["duplicate_submission"] = True
                 conn.rollback()
@@ -628,9 +661,7 @@ class LearningChainService:
                 "percentage": round(correct_count / total * 100, 1),
                 "profile": sorted(profile, key=lambda item: item["performance_estimate"]),
                 "weak_topics": [
-                    item["topic_name"]
-                    for item in profile
-                    if item["performance_estimate"] < 60
+                    item["topic_name"] for item in profile if item["performance_estimate"] < 60
                 ],
                 "details": details,
                 "recommendation": "",
@@ -756,9 +787,16 @@ class LearningChainService:
                 created_at=now,
             )
             conn.commit()
-        return {**result, "learning_session_id": session["id"], "subject": subject, "stage": "explaining"}
+        return {
+            **result,
+            "learning_session_id": session["id"],
+            "subject": subject,
+            "stage": "explaining",
+        }
 
-    def _find_pending(self, *, chat_session_id: str, subject: str = "Mathematics") -> sqlite3.Row | None:
+    def _find_pending(
+        self, *, chat_session_id: str, subject: str = "Mathematics"
+    ) -> sqlite3.Row | None:
         with self._connect() as conn:
             return conn.execute(
                 """
@@ -771,8 +809,12 @@ class LearningChainService:
                 (self.user_id, self.user_id, chat_session_id, subject),
             ).fetchone()
 
-    def _select_topics(self, requested: list[str], *, subject: str = "Mathematics") -> list[dict[str, Any]]:
-        normalised = [_normalise_topic(item, subject) for item in requested if str(item or "").strip()]
+    def _select_topics(
+        self, requested: list[str], *, subject: str = "Mathematics"
+    ) -> list[dict[str, Any]]:
+        normalised = [
+            _normalise_topic(item, subject) for item in requested if str(item or "").strip()
+        ]
         if normalised:
             unique: dict[str, dict[str, Any]] = {}
             for row in normalised[:8]:
@@ -796,7 +838,11 @@ class LearningChainService:
 
     @staticmethod
     def _validate_generated_questions(
-        generated: dict[str, Any], *, expected_count: int, subject: str = "Mathematics"
+        generated: dict[str, Any],
+        *,
+        expected_count: int,
+        subject: str = "Mathematics",
+        require_passage: bool = False,
     ) -> tuple[list[dict[str, Any]], dict[str, dict[str, str]]]:
         if not isinstance(generated, dict):
             raise LearningGenerationError("Question generator must return an object.")
@@ -818,7 +864,12 @@ class LearningChainService:
             question_text = str(raw.get("question") or "").strip()
             options = raw.get("options")
             answer = _normalise_choice(raw.get("answer"))
-            if not question_text or not isinstance(options, list) or len(options) != 4 or not answer:
+            if (
+                not question_text
+                or not isinstance(options, list)
+                or len(options) != 4
+                or not answer
+            ):
                 raise LearningGenerationError(
                     f"Question {question_id} must have text, four options, and answer A-D."
                 )
@@ -826,6 +877,11 @@ class LearningChainService:
             if any(not option for option in option_texts):
                 raise LearningGenerationError(f"Question {question_id} contains an empty option.")
             topic = _normalise_topic(raw.get("topic"), subject)
+            passage = raw.get("passage", "")
+            if not isinstance(passage, str) or len(passage) > 12000:
+                raise LearningGenerationError("passage must be text of at most 12000 characters.")
+            if require_passage and not passage.strip():
+                raise LearningGenerationError("Reading question requires its source passage.")
             public_questions.append(
                 {
                     "id": question_id,
@@ -833,6 +889,7 @@ class LearningChainService:
                     **topic,
                     "difficulty": str(raw.get("difficulty") or "medium").strip().lower(),
                     "question": question_text,
+                    "passage": passage.strip(),
                     "options": option_texts,
                 }
             )
@@ -933,7 +990,9 @@ class LearningChainService:
             )
 
 
-async def _retrieve_context(kb_name: str | None, query: str) -> tuple[str, str, list[dict[str, str]]]:
+async def _retrieve_context(
+    kb_name: str | None, query: str
+) -> tuple[str, str, list[dict[str, str]]]:
     if not kb_name:
         return "", "not_requested", []
     try:
@@ -957,21 +1016,23 @@ async def _default_question_generator(
     kb_name: str | None,
     language: str,
     subject: str = "Mathematics",
+    practice_type: str = "objective",
 ) -> dict[str, Any]:
     from deeptutor.services.llm import complete as llm_complete
 
     topic_names = [str(item["topic_name"]) for item in topics]
     context, retrieval_status, references = await _retrieve_context(
-        kb_name, "Mathematics " + " ".join(topic_names)
+        kb_name, subject + " " + " ".join(topic_names)
     )
     lang_line = "Respond in 繁體中文." if language == "zh" else "Respond in English."
     schema = {
         "questions": [
             {
                 "id": "q1",
-                "topic": topic_names[0] if topic_names else "Algebra",
+                "topic": topic_names[0] if topic_names else DEFAULT_TOPICS[subject],
                 "difficulty": "easy|medium|hard",
                 "question": "question text",
+                "passage": "complete short reading passage" if practice_type == "reading" else "",
                 "options": ["A. ...", "B. ...", "C. ...", "D. ..."],
                 "answer": "A",
                 "explanation": "brief worked explanation",
@@ -980,18 +1041,36 @@ async def _default_question_generator(
     }
     prompt = (
         f"{lang_line}\nCreate exactly {num_questions} objective multiple-choice "
-        f"Mathematics questions for a {activity}.\n"
-        f"Topics: {', '.join(topic_names)}.\n"
+        f"{subject} questions for a {activity}.\n"
+        + (
+            "Write passages, questions and choices in Traditional Chinese.\n"
+            if subject == "Chinese"
+            else (
+                "Write passages, questions and choices in English.\n"
+                if subject == "English"
+                else ""
+            )
+        )
+        + (
+            "This is reading practice. Every question MUST include its complete short passage in the passage field, with enough evidence for its answer.\n"
+            if practice_type == "reading"
+            else "For any question that refers to a text, include that complete text in passage.\n"
+        )
+        + f"Topics: {', '.join(topic_names)}.\n"
         "Every question must have exactly four choices and one unambiguous answer A-D. "
         "Use stable ids q1, q2, ... and include a brief correctness explanation.\n"
-        + (f"Ground questions in this material when relevant:\n{context[:5000]}\n" if context else "")
+        + (
+            f"Ground questions in this material when relevant:\n{context[:5000]}\n"
+            if context
+            else ""
+        )
         + f"Output only JSON matching: {_json_dumps(schema)}"
     )
     try:
         raw = await llm_complete(
             prompt,
             system_prompt=(
-                "You are a careful secondary-school mathematics assessment designer. "
+                f"You are a careful HKDSE {subject} objective assessment designer. "
                 "Return valid JSON only. Check the answer key before responding."
             ),
         )
@@ -1009,14 +1088,18 @@ async def _default_question_generator(
 
 
 async def _default_recommendation_generator(
-    *, profile: list[dict[str, Any]], weak_topics: list[str], language: str, subject: str = "Mathematics"
+    *,
+    profile: list[dict[str, Any]],
+    weak_topics: list[str],
+    language: str,
+    subject: str = "Mathematics",
 ) -> str:
     from deeptutor.services.llm import complete as llm_complete
 
     lang_line = "Respond in 繁體中文." if language == "zh" else "Respond in English."
     raw = await llm_complete(
         (
-            f"{lang_line}\nA learner completed an objective Mathematics attempt. "
+            f"{lang_line}\nA learner completed an objective {subject} attempt. "
             f"Performance estimates: {_json_dumps(profile)}. Weak topics: {weak_topics}. "
             "Give two short, concrete next-step sentences. Do not claim this is a "
             "validated mastery measurement."
@@ -1031,25 +1114,27 @@ async def _default_concept_generator(
 ) -> dict[str, Any]:
     from deeptutor.services.llm import complete as llm_complete
 
-    context, retrieval_status, references = await _retrieve_context(kb_name, concept)
+    context, retrieval_status, references = await _retrieve_context(
+        kb_name, subject + " " + concept
+    )
     lang_line = "Respond in 繁體中文." if language == "zh" else "Respond in English."
     schema = {
         "concept": concept,
         "summary": "plain-language explanation",
         "analogy": "intuitive analogy",
         "key_points": ["point"],
-        "worked_example": "worked mathematics example",
+        "worked_example": "worked subject example",
         "common_mistakes": ["mistake"],
         "check_question": "quick self-check",
     }
     raw = await llm_complete(
         (
-            f"{lang_line}\nExplain the Mathematics concept {concept!r} for a secondary-school "
+            f"{lang_line}\nExplain the {subject} concept {concept!r} for a secondary-school "
             "learner. Include one worked example and a self-check."
             + (f"\nUse this source material:\n{context[:5000]}" if context else "")
             + f"\nOutput only JSON matching: {_json_dumps(schema)}"
         ),
-        system_prompt="You are a patient mathematics tutor. Return valid JSON only.",
+        system_prompt=f"You are a patient {subject} tutor. Return valid JSON only.",
     )
     parsed = _parse_json_object(raw)
     return {

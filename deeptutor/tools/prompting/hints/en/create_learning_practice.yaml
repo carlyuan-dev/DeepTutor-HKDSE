@@ -1,0 +1,4 @@
+short_description: "Create or recover objective practice in the selected subject; answers remain server-side."
+when_to_use: "After get_learning_state. Use diagnostic without history, otherwise practice. Use practice_type=reading for passage-based Chinese/English requests."
+input_format: "subject; activity=diagnostic|practice; practice_type=objective|reading; optional topics, num_questions=1..10, attached kb_name."
+guideline: "Reuse pending attempts. Next call ask_user with learning_attempt_id equal to returned attempt_id and question_ids for up to three saved questions. The server supplies exact passages, questions and options. For more than three questions ask in batches, then submit all answers. Never solve questions yourself."

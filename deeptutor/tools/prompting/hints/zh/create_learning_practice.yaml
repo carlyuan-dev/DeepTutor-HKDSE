@@ -1,0 +1,4 @@
+short_description: "创建或恢复指定学科的客观题练习，答案键保留在服务端。"
+when_to_use: "先读取 get_learning_state；无记录用 diagnostic，否则用 practice。中英文阅读请求使用 practice_type=reading。"
+input_format: "subject；activity=diagnostic|practice；practice_type=objective|reading；可选 topics、num_questions=1..10、已挂载的 kb_name。"
+guideline: "复用待答练习。随后用 ask_user 的 learning_attempt_id 指向返回的 attempt_id，question_ids 每批最多三题；服务端提供保存的原文、题干与选项。超过三题分批等待作答，最后一次提交全部答案。不要替用户答题。"

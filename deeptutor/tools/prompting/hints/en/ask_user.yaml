@@ -1,6 +1,9 @@
 short_description: "Pause the loop and ask the user 1-3 clarifying questions on one card; each question can have its own option chips and free-form input."
 when_to_use: "Only when missing information genuinely blocks a reliable answer: user level / grade is unclear and would change the depth, the question's referent is ambiguous, or several reasonable paths need user input. **Do not call this every turn** and do not call it when the user has already been clear. **At most one `ask_user` per assistant message**: bundle every clarification into the `questions` list of that single call (up to 3 questions); never emit multiple parallel `ask_user` tool_calls in one `tool_calls` field — duplicate cards are a bug, not redundancy."
 input_format: |
+  Saved learning practice: {"learning_attempt_id": "returned attempt_id", "question_ids": ["q1"]}.
+  The server supplies original passages and choices. Do not copy or rewrite them.
+  Learning practice is also a valid use, even when intent is clear. More than three saved questions may use consecutive batches after each reply; never parallel cards.
   Preferred:
   {"intro": "optional one-line lead-in", "questions": [
     {"id": "scope",  "prompt": "Q1 text", "options": ["A","B","C"]},

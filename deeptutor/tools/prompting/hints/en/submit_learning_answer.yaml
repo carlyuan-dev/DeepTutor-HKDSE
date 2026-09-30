@@ -1,0 +1,4 @@
+short_description: "Score learner answers against a saved practice and update learning records."
+when_to_use: "After the learner answers all saved questions through ask_user."
+input_format: "attempt_id; answers=[{question_id,answer:A|B|C|D}]."
+guideline: "Use the exact saved attempt_id and actual learner choices. Do not invent answers. Subject and owner come from the record. Repeating identical answers is safe; conflicting answers after submission are rejected."

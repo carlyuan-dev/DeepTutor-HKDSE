@@ -1,0 +1,4 @@
+short_description: "根据已保存题目的答案键评分并更新学习记录。"
+when_to_use: "用户通过 ask_user 完成全部题目后调用。"
+input_format: "attempt_id；answers=[{question_id,answer:A|B|C|D}]。"
+guideline: "使用保存的 attempt_id 和用户实际答案，不编造作答。学科与用户归属以服务端记录为准；相同答案重交不重复计分，完成后改变答案会被拒绝。"

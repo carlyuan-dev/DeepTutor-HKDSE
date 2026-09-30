@@ -910,6 +910,21 @@ class AgenticChatPipeline:
                 default=f"An unknown error occurred while executing {tn}.",
             ),
             trace_id_prefix="chat-iter",
+            # Stateful learning tools in one model batch observe preceding
+            # writes. Other batches retain the shared parallel behavior.
+            sequential=any(
+                tc.get("name")
+                in {
+                    "get_learning_state",
+                    "create_learning_practice",
+                    "submit_learning_answer",
+                    "explain_learning_concept",
+                    "create_math_practice",
+                    "submit_math_answer",
+                    "explain_math_concept",
+                }
+                for tc in tool_calls
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -1384,6 +1399,8 @@ class AgenticChatPipeline:
                 if isinstance(kb_schema, dict):
                     kb_schema["enum"] = kb_choices
             if function.get("name") in {
+                "create_learning_practice",
+                "explain_learning_concept",
                 "create_math_practice",
                 "explain_math_concept",
             } and isinstance(properties, dict):
@@ -1553,8 +1570,13 @@ class AgenticChatPipeline:
             # server-side.
             kwargs["conversation_history"] = list(context.conversation_history or [])
             kwargs["current_user_message"] = context.user_message or ""
+        elif tool_name == "ask_user":
+            kwargs["session_id"] = context.session_id
         elif tool_name in {
             "get_learning_state",
+            "create_learning_practice",
+            "submit_learning_answer",
+            "explain_learning_concept",
             "create_math_practice",
             "submit_math_answer",
             "explain_math_concept",
@@ -1565,7 +1587,14 @@ class AgenticChatPipeline:
             # authoritative server-side values.
             kwargs["session_id"] = context.session_id
             kwargs["language"] = context.language or "en"
-            if tool_name in {"create_math_practice", "explain_math_concept"}:
+            if tool_name == "get_learning_state":
+                kwargs.setdefault("subject", None)
+            if tool_name in {
+                "create_math_practice",
+                "explain_math_concept",
+                "create_learning_practice",
+                "explain_learning_concept",
+            }:
                 selected_kbs = set(self._selected_kbs(context))
                 if kwargs.get("kb_name") not in selected_kbs:
                     kwargs.pop("kb_name", None)

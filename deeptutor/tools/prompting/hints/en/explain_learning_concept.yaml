@@ -1,0 +1,4 @@
+short_description: "Explain a concept in Mathematics, Chinese or English."
+when_to_use: "When the learner needs an explanation before practice; keep subject explicit."
+input_format: "subject; concept; optional attached kb_name."
+guideline: "Use the returned explanation; distinguish general explanation from retrieved evidence."

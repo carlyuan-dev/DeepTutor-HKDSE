@@ -1,0 +1,4 @@
+short_description: "讲解数学、中文或英文知识点。"
+when_to_use: "练习前需要概念讲解时使用，必须明确学科。"
+input_format: "subject；concept；可选已挂载的 kb_name。"
+guideline: "依据返回内容讲解，区分通用讲解与检索材料支持。"
