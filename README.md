@@ -75,15 +75,15 @@ python -m deeptutor_cli start
 
 以下为使用仓库示例材料的实际运行截图，题目和模型反馈每次可能不同。
 
-![生成试卷并作答](docs/images/paper-practice.png)
+[![生成试卷并作答](docs/images/paper-practice.jpg)](docs/images/paper-practice.jpg)
 
 批改页将得分、错题原因与后续复习入口放在一起：
 
-![批改与薄弱项反馈](docs/images/grading-feedback.png)
+[![批改与薄弱项反馈](docs/images/grading-feedback.jpg)](docs/images/grading-feedback.jpg)
 
 从本次反馈进入闪卡页，点击卡片查看答案，再按掌握程度标记：
 
-![针对薄弱项生成的复习闪卡](docs/images/flashcard-review.png)
+[![针对薄弱项生成的复习闪卡](docs/images/flashcard-review.jpg)](docs/images/flashcard-review.jpg)
 
 ### 英语口语模拟
 
@@ -97,7 +97,7 @@ python -m deeptutor_cli start
 
 三位模拟考生与考官优先使用不同英语音色，不通过变调区分角色；实际音色取决于浏览器和系统可用语音，数量不足时会复用。
 
-![口语小组讨论中的模拟考生发言](docs/images/oral-discussion.png)
+[![口语小组讨论中的模拟考生发言](docs/images/oral-discussion.jpg)](docs/images/oral-discussion.jpg)
 
 ## 文档
 
